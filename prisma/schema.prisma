@@ -1,0 +1,100 @@
+// Workout tracker schema.
+//
+// Weights are always stored canonically in kilograms (`weightKg`). Each user
+// picks a display unit and every read path converts on the way out, so the
+// same workout renders correctly for a lb user and a kg user.
+//
+// Cumulative volume (reps x weight) is never stored -- it is derived on read
+// so it can never drift out of sync with the sets it summarises.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum WeightUnit {
+  LB
+  KG
+}
+
+enum WorkoutStatus {
+  ACTIVE
+  COMPLETED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  email        String     @unique
+  passwordHash String
+  unit         WeightUnit @default(LB)
+  createdAt    DateTime   @default(now())
+
+  workouts Workout[]
+  photo    ProfilePhoto?
+}
+
+// Image bytes live in their own table rather than a column on User. A stray
+// `findUnique({ where })` with no `select` returns every scalar field, and on
+// User that would quietly pull a photo into memory on every page load.
+//
+// Keeping it 1-1 on userId also means deleting the row is all "remove photo"
+// has to do.
+model ProfilePhoto {
+  userId String @id
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  data     Bytes
+  mimeType String
+  byteSize Int
+
+  updatedAt DateTime @updatedAt
+}
+
+model Workout {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title  String?
+  status WorkoutStatus @default(ACTIVE)
+
+  // Both timestamps are set by the server, never sent by the client:
+  // `startedAt` when the workout is created, `finishedAt` when it is finished.
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  exercises Exercise[]
+
+  @@index([userId, startedAt])
+  @@index([userId, status])
+}
+
+model Exercise {
+  id        String  @id @default(cuid())
+  workoutId String
+  workout   Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  name     String
+  position Int
+
+  sets WorkoutSet[]
+
+  @@index([workoutId])
+}
+
+model WorkoutSet {
+  id         String   @id @default(cuid())
+  exerciseId String
+  exercise   Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  position Int
+  reps     Int
+  weightKg Float
+
+  @@index([exerciseId])
+}

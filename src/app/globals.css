@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/*
+ * iOS system palette. These are Apple's own semantic colors (systemGroupedBackground,
+ * label, separator, systemBlue, ...) so the app reads as native on an iPhone and
+ * follows the phone's light/dark setting automatically.
+ */
+:root {
+  --ios-canvas: #f2f2f7;
+  --ios-surface: #ffffff;
+  --ios-fill: rgba(118, 118, 128, 0.12);
+  --ios-separator: rgba(60, 60, 67, 0.29);
+  --ios-label: #000000;
+  --ios-label-2: rgba(60, 60, 67, 0.6);
+  --ios-label-3: rgba(60, 60, 67, 0.3);
+  --ios-accent: #007aff;
+  --ios-danger: #ff3b30;
+  --ios-success: #34c759;
+  --ios-bar: rgba(249, 249, 249, 0.8);
+  --ios-press: rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ios-canvas: #000000;
+    --ios-surface: #1c1c1e;
+    --ios-fill: rgba(118, 118, 128, 0.24);
+    --ios-separator: rgba(84, 84, 88, 0.6);
+    --ios-label: #ffffff;
+    --ios-label-2: rgba(235, 235, 245, 0.6);
+    --ios-label-3: rgba(235, 235, 245, 0.3);
+    --ios-accent: #0a84ff;
+    --ios-danger: #ff453a;
+    --ios-success: #30d158;
+    --ios-bar: rgba(22, 22, 24, 0.8);
+    --ios-press: rgba(255, 255, 255, 0.08);
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--ios-canvas);
+  --color-surface: var(--ios-surface);
+  --color-fill: var(--ios-fill);
+  --color-separator: var(--ios-separator);
+  --color-label: var(--ios-label);
+  --color-label2: var(--ios-label-2);
+  --color-label3: var(--ios-label-3);
+  --color-accent: var(--ios-accent);
+  --color-danger: var(--ios-danger);
+  --color-success: var(--ios-success);
+  --color-press: var(--ios-press);
+
+  /* SF Pro on Apple devices, sensible stand-ins elsewhere. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+    system-ui, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: var(--ios-canvas);
+}
+
+body {
+  background: var(--ios-canvas);
+  color: var(--ios-label);
+  font-family: var(--font-sans);
+  /* iOS shows a grey flash on every tap without this. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Chrome (nav bars, buttons, labels) shouldn't be text-selectable — native apps aren't. */
+button,
+nav,
+label {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Numbers in tables and totals should not jitter as they change. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Translucent navigation/tab bar material. */
+.ios-material {
+  background-color: var(--ios-bar);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* iOS list rows dim on touch rather than showing a hover state. */
+.ios-press {
+  transition: background-color 0.12s ease-out;
+}
+.ios-press:active {
+  background-color: var(--ios-press);
+}
+
+/* Filled buttons scale down slightly when pressed, like UIButton. */
+.ios-tap {
+  transition:
+    transform 0.12s ease-out,
+    opacity 0.12s ease-out;
+}
+.ios-tap:active {
+  transform: scale(0.97);
+  opacity: 0.85;
+}
+
+/* Number fields: no spinners, and never smaller than 16px or iOS zooms in on focus. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input,
+select,
+textarea {
+  font-size: max(16px, 1em);
+  font-family: inherit;
+}
+
+input::placeholder {
+  color: var(--ios-label-3);
+}
