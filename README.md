@@ -13,6 +13,22 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 
 ---
 
+## Screenshots
+
+| Home | Logging a workout | Progress over time |
+| :---: | :---: | :---: |
+| ![Home screen showing total weight moved and recent workouts](docs/screenshots/home.png) | ![Live workout logger with a running total](docs/screenshots/logger.png) | ![Line chart of bench press top-set weight over two months](docs/screenshots/progress.png) |
+| Lifetime and 7-day totals, plus recent sessions | Sets, reps and a live cumulative total | Top-set weight per session, with a Volume toggle |
+
+| History | Workout detail | Profile |
+| :---: | :---: | :---: |
+| ![Workout history grouped by month](docs/screenshots/history.png) | ![A saved workout's set-by-set breakdown](docs/screenshots/workout-detail.png) | ![Profile screen with photo and unit preference](docs/screenshots/profile.png) |
+| Every finished workout, grouped by month | Every set, with per-exercise volume | Photo, display name and weight unit |
+
+<sub>Shown in dark mode with demo data. The app follows your phone's light/dark setting.</sub>
+
+---
+
 ## What it does today
 
 **Accounts**
