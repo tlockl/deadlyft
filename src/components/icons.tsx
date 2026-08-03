@@ -77,6 +77,39 @@ export function DumbbellIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A weight plate, seen face on. */
+export function PlateIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2.5" />
+    </svg>
+  );
+}
+
+/** The classic loop arrows, for repeating the set you just logged. */
+export function RepeatIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <path d="M17 3.5 20.5 7 17 10.5" />
+      <path d="M20.5 7H7a3.5 3.5 0 0 0-3.5 3.5V12" />
+      <path d="M7 20.5 3.5 17 7 13.5" />
+      <path d="M3.5 17h13.5a3.5 3.5 0 0 0 3.5-3.5V12" />
+    </svg>
+  );
+}
+
+/** A bathroom scale, read as a dial inside a rounded platform. */
+export function ScaleIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3.25" y="3.25" width="17.5" height="17.5" rx="4.5" />
+      <path d="M7.75 15.25a4.25 4.25 0 0 1 8.5 0" />
+      <path d="M12 15.25 14.4 12" />
+    </svg>
+  );
+}
+
 export function FlameIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>

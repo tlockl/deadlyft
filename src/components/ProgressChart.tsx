@@ -49,9 +49,15 @@ function formatTick(value: number, range: number): string {
 export default function ProgressChart({
   points,
   unit,
+  noun = "session",
+  singleHint = "Log this movement again to start seeing a trend.",
 }: {
   points: ChartPoint[];
   unit: string;
+  /** What one point stands for, in the caption and the accessible label. */
+  noun?: string;
+  /** Caption for a lone point, where there is no trend to read yet. */
+  singleHint?: string;
 }) {
   const gradientId = useId();
   // Opens on the most recent session, which is the one you care about most.
@@ -128,7 +134,7 @@ export default function ProgressChart({
         viewBox={`0 0 ${VB_W} ${VB_H}`}
         className="mt-1 h-auto w-full text-accent"
         role="group"
-        aria-label={`Line chart of ${points.length} sessions, from ${points[0].shortDate} to ${points.at(-1)!.shortDate}`}
+        aria-label={`Line chart of ${points.length} ${noun}s, from ${points[0].shortDate} to ${points.at(-1)!.shortDate}`}
       >
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -244,9 +250,7 @@ export default function ProgressChart({
       </svg>
 
       <p className="px-4 pb-3 text-[13px] text-label2">
-        {points.length === 1
-          ? "Log this movement again to start seeing a trend."
-          : "Tap any point to see that session."}
+        {points.length === 1 ? singleHint : `Tap any point to see that ${noun}.`}
       </p>
     </div>
   );

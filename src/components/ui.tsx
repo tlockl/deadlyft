@@ -105,6 +105,30 @@ export function LinkRow({
   );
 }
 
+/** A read-only list row: label on the left, value on the right. */
+export function InfoRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 pl-4">
+      <div
+        className={`flex flex-1 items-center justify-between gap-3 py-[11px] pr-4 ${
+          last ? "" : "border-b border-separator"
+        }`}
+      >
+        <span className="text-[17px]">{label}</span>
+        <span className="text-[17px] tabular text-label2">{value}</span>
+      </div>
+    </div>
+  );
+}
+
 /** Big number tile used for lifetime totals. */
 export function StatTile({
   label,

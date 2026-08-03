@@ -4,8 +4,15 @@ import { getUserStats } from "@/lib/stats";
 import { logout } from "@/app/actions/auth";
 import { uploadPhoto, removePhoto } from "@/app/actions/photo";
 import { photoUrl } from "@/lib/photos";
-import { formatVolume } from "@/lib/units";
-import { LargeTitle, SectionHeader, InsetGroup } from "@/components/ui";
+import { getLatestMetric } from "@/lib/body";
+import { formatVolume, formatWeight } from "@/lib/units";
+import {
+  LargeTitle,
+  SectionHeader,
+  InsetGroup,
+  InfoRow,
+  LinkRow,
+} from "@/components/ui";
 import ProfileForm from "@/components/ProfileForm";
 import PhotoPicker from "@/components/PhotoPicker";
 import SubmitButton from "@/components/SubmitButton";
@@ -22,29 +29,6 @@ const PHOTO_MESSAGES: Record<string, { text: string; ok: boolean }> = {
   type: { text: "That file isn't a JPEG, PNG or WebP image.", ok: false },
 };
 
-function InfoRow({
-  label,
-  value,
-  last = false,
-}: {
-  label: string;
-  value: string;
-  last?: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-3 pl-4">
-      <div
-        className={`flex flex-1 items-center justify-between py-[11px] pr-4 ${
-          last ? "" : "border-b border-separator"
-        }`}
-      >
-        <span className="text-[17px]">{label}</span>
-        <span className="text-[17px] tabular text-label2">{value}</span>
-      </div>
-    </div>
-  );
-}
-
 export default async function ProfilePage({
   searchParams,
 }: {
@@ -52,6 +36,7 @@ export default async function ProfilePage({
 }) {
   const user = await getCurrentUser();
   const stats = await getUserStats(user.id);
+  const latestWeight = await getLatestMetric(user.id, "WEIGHT");
   const { photo } = await searchParams;
 
   const message = photo ? PHOTO_MESSAGES[photo] : undefined;
@@ -91,6 +76,21 @@ export default async function ProfilePage({
           {message.text}
         </p>
       )}
+
+      <SectionHeader>Body</SectionHeader>
+      <InsetGroup>
+        <LinkRow
+          href="/body"
+          title="Measurements"
+          subtitle="Weight, height and body fat"
+          trailing={
+            latestWeight
+              ? formatWeight(latestWeight.value, user.unit)
+              : undefined
+          }
+          last
+        />
+      </InsetGroup>
 
       <SectionHeader>Settings</SectionHeader>
       <ProfileForm name={user.name} unit={user.unit} />

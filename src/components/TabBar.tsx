@@ -7,12 +7,14 @@ import {
   HistoryIcon,
   ProfileIcon,
   DumbbellIcon,
+  ScaleIcon,
 } from "@/components/icons";
 
 const TABS = [
   { href: "/", label: "Home", Icon: HomeIcon },
   { href: "/history", label: "History", Icon: HistoryIcon },
   { href: "/exercises", label: "Exercises", Icon: DumbbellIcon },
+  { href: "/body", label: "Body", Icon: ScaleIcon },
   { href: "/profile", label: "Profile", Icon: ProfileIcon },
 ] as const;
 

@@ -1,6 +1,6 @@
 /*
- * Seeds back-dated demo workouts, so charts and history have something real to
- * show without waiting weeks to accumulate it.
+ * Seeds back-dated demo workouts and body measurements, so charts and history
+ * have something real to show without waiting weeks to accumulate it.
  *
  *   npm run seed
  *
@@ -12,6 +12,7 @@
  * data and never touches anything you logged yourself:
  *
  *   DELETE FROM Workout WHERE id LIKE 'seed_%';
+ *   DELETE FROM BodyMetric WHERE id LIKE 'seed_%';
  *
  * Config via env:
  *   DEMO_EMAIL   account to attach the workouts to (default tristen@example.test)
@@ -44,6 +45,26 @@ const PLAN = [
   [1, "Push Day", [["Bench Press", [[135, 10], [155, 8], [175, 6]]], ["Overhead Press", [[95, 6], [90, 8]]]]],
 ];
 
+// Body measurements, so the Body tab opens on a real trend rather than an
+// empty chart. [days ago, lb] -- a slow gain with the day-to-day noise a real
+// scale has, because a perfectly smooth line doesn't look like a person.
+const WEIGH_INS = [
+  [56, 178.4], [52, 179.2], [48, 178.6], [44, 180.1], [40, 180.8],
+  [35, 180.2], [31, 181.6], [27, 182.4], [23, 181.9], [18, 183.2],
+  [14, 183.0], [10, 184.1], [6, 184.8], [2, 185.4], [0, 185.9],
+];
+
+// [days ago, percent] -- measured far less often than weight, which is the
+// point: each metric is its own series and they don't have to line up.
+const BODY_FATS = [
+  [56, 19.4],
+  [28, 18.6],
+  [2, 17.9],
+];
+
+// Entered once, months ago, and never touched since.
+const HEIGHT_IN = 71;
+
 const db = new Database(DB_PATH);
 
 const user = db.prepare("SELECT id FROM User WHERE email = ?").get(EMAIL);
@@ -63,9 +84,49 @@ const insertExercise = db.prepare(
 const insertSet = db.prepare(
   "INSERT INTO WorkoutSet (id, exerciseId, position, reps, weightKg) VALUES (?, ?, ?, ?, ?)",
 );
+const insertMetric = db.prepare(
+  "INSERT INTO BodyMetric (id, userId, kind, value, recordedAt) VALUES (?, ?, ?, ?, ?)",
+);
+
+// A measurement is a morning thing, so put the weigh-ins before breakfast
+// rather than at whatever time the script ran.
+const morningOf = (daysAgo) => {
+  const day = new Date(Date.now() - daysAgo * DAY);
+  day.setHours(7, 20, 0, 0);
+  return day.getTime();
+};
 
 db.transaction(() => {
   db.prepare("DELETE FROM Workout WHERE id LIKE 'seed_%'").run();
+  db.prepare("DELETE FROM BodyMetric WHERE id LIKE 'seed_%'").run();
+
+  insertMetric.run(
+    "seed_bh",
+    user.id,
+    "HEIGHT",
+    HEIGHT_IN * 2.54,
+    iso(morningOf(56)),
+  );
+
+  WEIGH_INS.forEach(([daysAgo, lb], i) => {
+    insertMetric.run(
+      `seed_bw${i}`,
+      user.id,
+      "WEIGHT",
+      lb * LB_TO_KG,
+      iso(morningOf(daysAgo)),
+    );
+  });
+
+  BODY_FATS.forEach(([daysAgo, percent], i) => {
+    insertMetric.run(
+      `seed_bf${i}`,
+      user.id,
+      "BODY_FAT",
+      percent,
+      iso(morningOf(daysAgo)),
+    );
+  });
 
   PLAN.forEach(([daysAgo, title, exercises], w) => {
     // Land each session at a varied evening hour rather than whatever time the
@@ -108,5 +169,8 @@ const summary = db
   )
   .all(user.id);
 
-console.log(`seeded ${PLAN.length} workouts for ${EMAIL}`);
+console.log(
+  `seeded ${PLAN.length} workouts, ${WEIGH_INS.length} weigh-ins, ` +
+    `${BODY_FATS.length} body fat readings and a height for ${EMAIL}`,
+);
 console.table(summary);

@@ -26,6 +26,12 @@ enum WorkoutStatus {
   COMPLETED
 }
 
+enum BodyMetricKind {
+  WEIGHT
+  HEIGHT
+  BODY_FAT
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -34,8 +40,39 @@ model User {
   unit         WeightUnit @default(LB)
   createdAt    DateTime   @default(now())
 
-  workouts Workout[]
-  photo    ProfilePhoto?
+  workouts    Workout[]
+  photo       ProfilePhoto?
+  bodyMetrics BodyMetric[]
+}
+
+// One measurement of one thing at one moment -- a weigh-in, a height, a body
+// fat reading. Deliberately a long, narrow table rather than a wide row of
+// nullable columns per measuring session: you rarely measure everything at
+// once, so a wide row would be mostly nulls and "what is my current height"
+// would mean hunting for the most recent row where the column happened not to
+// be null. One row per reading makes every metric an independent time series,
+// which is exactly what the chart wants, and adding a waist measurement later
+// is a new enum value rather than a new column.
+//
+// The price is that `value` has no unit of its own -- it means kilograms,
+// centimetres or percent depending on `kind`. That mapping is written down
+// once, in BODY_METRICS in src/lib/body.ts, and nothing else is allowed to
+// assume a unit.
+model BodyMetric {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  kind  BodyMetricKind
+  value Float
+
+  // Unlike a workout's timestamps, this one may come from the client: a
+  // measurement is something you *did*, not something the app watched happen,
+  // and this morning's weigh-in is routinely logged in the evening. Bounded to
+  // "not in the future" on the way in.
+  recordedAt DateTime @default(now())
+
+  @@index([userId, kind, recordedAt])
 }
 
 // Image bytes live in their own table rather than a column on User. A stray
