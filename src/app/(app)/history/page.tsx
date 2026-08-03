@@ -17,7 +17,7 @@ import {
 } from "@/components/ui";
 import { HistoryIcon } from "@/components/icons";
 
-export const metadata: Metadata = { title: "History · Reps" };
+export const metadata: Metadata = { title: "History" };
 
 /** Group workouts under a month heading, newest first. */
 function monthKey(date: Date): string {

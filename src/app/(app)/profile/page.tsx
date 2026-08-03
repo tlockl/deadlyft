@@ -10,7 +10,7 @@ import ProfileForm from "@/components/ProfileForm";
 import PhotoPicker from "@/components/PhotoPicker";
 import SubmitButton from "@/components/SubmitButton";
 
-export const metadata: Metadata = { title: "Profile · Reps" };
+export const metadata: Metadata = { title: "Profile" };
 
 // Photo actions report back through a redirect param rather than returned
 // state, so the upload form can stay server-rendered. See actions/photo.ts.

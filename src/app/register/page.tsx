@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import RegisterForm from "@/components/RegisterForm";
 import { DumbbellIcon } from "@/components/icons";
 
-export const metadata: Metadata = { title: "Sign Up · Reps" };
+export const metadata: Metadata = { title: "Sign Up" };
 
 export default function RegisterPage() {
   return (

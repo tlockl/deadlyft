@@ -11,7 +11,7 @@ import {
 } from "@/components/ui";
 import { DumbbellIcon } from "@/components/icons";
 
-export const metadata: Metadata = { title: "Exercises · Reps" };
+export const metadata: Metadata = { title: "Exercises" };
 
 export default async function ExercisesPage() {
   const user = await getCurrentUser();

@@ -2,13 +2,18 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Reps",
+  // The template means every other page sets only its own name, and the app
+  // name lives in exactly one place.
+  title: {
+    default: "DEADLYFT",
+    template: "%s · DEADLYFT",
+  },
   description:
     "Log your sets, reps and total weight moved, and look back on every workout.",
   // Lets the app be added to the iPhone home screen and open without Safari chrome.
   appleWebApp: {
     capable: true,
-    title: "Reps",
+    title: "DEADLYFT",
     statusBarStyle: "default",
   },
 };

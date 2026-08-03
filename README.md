@@ -1,4 +1,8 @@
-# Reps
+<p align="center">
+  <img src="docs/icon.png" width="128" alt="DEADLYFT app icon">
+</p>
+
+<h1 align="center">DEADLYFT</h1>
 
 A mobile-first workout tracker. Log your sets, reps and weight; every workout is
 stamped with the date and time automatically and kept in a history you can look

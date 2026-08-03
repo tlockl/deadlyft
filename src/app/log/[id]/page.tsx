@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import WorkoutLogger from "@/components/WorkoutLogger";
 
-export const metadata: Metadata = { title: "Logging · Reps" };
+export const metadata: Metadata = { title: "Logging" };
 
 /**
  * The active-workout screen. It lives outside the (app) route group so it can
