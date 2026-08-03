@@ -45,6 +45,12 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 **Logging a workout**
 
 - Tap **Start Workout** and add exercises, then sets, then weight and reps
+- **Load by plates instead of doing the sums.** Tap the plate button on a set
+  and hit the plates you actually hung — it counts both sides and adds the bar,
+  and shows its working ("45 × 2 per side + 45 bar = 225 lb"). One-sided
+  machines and bar weights are a tap each, remembered per exercise.
+- **Repeat** logs the set you just did again, because most sets after the first
+  are the same set again
 - **Cumulative weight moved** updates live as you type — the headline number
 - A stopwatch runs while you train
 - Start and finish times are recorded by the server, so nothing can be backdated
@@ -66,6 +72,17 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 - Locking your phone doesn't lose time — the timers read the wall clock rather
   than counting ticks
 - A workout can be nothing but cardio, so a run on its own is still a workout
+
+**Your own measurements**
+
+- **Body** — log your weight, height and body fat, as often or as rarely as you
+  like. Fill in only the boxes you actually measured; height goes in once.
+- A chart per measurement, so you can watch weight move over weeks rather than
+  guess from the last number you remember
+- Current weight, the change over the last 30 days, current body fat, your
+  height and a derived BMI
+- Back-date a weigh-in you took this morning and logged tonight
+- Delete a mistyped reading so it doesn't sit in the chart forever
 
 **Looking back**
 
@@ -163,6 +180,8 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Optimistic route gating | `src/proxy.ts` |
 | Server actions | `src/app/actions/` |
 | Volume, units, exercise grouping | `src/lib/volume.ts`, `units.ts`, `exercises.ts` |
+| Body measurements, height units, BMI | `src/lib/body.ts` |
+| Plate denominations and loadout maths | `src/lib/plates.ts` |
 | Cardio rules, shared wall clock | `src/lib/cardio.ts`, `clock.ts`, `chime.ts` |
 | Draft shape + surviving a reload | `src/lib/drafts.ts` |
 | Screens | `src/app/(app)/`, `src/app/log/[id]/` |
@@ -174,7 +193,7 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Command | What it does |
 | --- | --- |
 | `npm run icons` | Regenerates every icon from `assets/icon-source.png` |
-| `npm run seed` | Fills the demo account with back-dated workouts |
+| `npm run seed` | Fills the demo account with back-dated workouts and weigh-ins |
 | `npm run screenshots` | Recaptures the screenshots above |
 
 ### Screens
@@ -185,6 +204,7 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 - `/workout/[id]` — a saved workout's full set-by-set breakdown
 - `/exercises` — every movement you've logged, most recent first
 - `/exercises/[name]` — progress chart for one movement, plus every session
+- `/body` — weight, height and body fat over time, with the form to log them
 - `/profile` — photo, display name, weight unit, account info, sign out
 - `/api/users/[id]/photo` — a user's photo, authorized per viewer
 
@@ -289,6 +309,81 @@ change in the second they belong to.
 exercise *or* at least one cardio entry, not one exercise. A run on its own is
 a workout, and the count-up timer exists precisely for it.
 
+**The plate panel writes a number and keeps nothing.** It only ever sets the
+set's weight — no plate breakdown is stored on the set, and nothing about it
+reaches the database. A weight loaded by tapping plates and the same weight
+typed in are the same weight, which is what keeps volume, charts and history
+from having to know the panel exists.
+
+What it does hold, while it's open, is *which* plates you tapped, because a
+total doesn't say how it was made up: 20 + 20 a side and 25 + 15 a side both
+come to 40, and redrawing your two 20s as a 25 and a 15 would be telling you
+something untrue about your own bar. Those remembered plates are trusted only
+while they still add up to what's in the field — type a weight over the top and
+they no longer do, so the panel falls back to decomposing the number you typed.
+That same decomposition is what lets it open already showing the last set's
+loading, so adding one more plate is a single tap.
+
+A weight that no set of plates makes — a machine's stack number, or something
+odd typed by hand — decomposes to nothing rather than to an approximation. The
+panel then shows nothing loaded, and the next plate tapped starts a clean
+total. Better to admit it doesn't know than to draw a bar that was never built.
+
+**Plate maths runs in tenths of a unit, and in display units.** Tenths because
+2.5 has no exact binary representation and eight of them should come to 20, not
+19.999999999999996. Display units because you load a 45 lb plate, not a 20.4 kg
+one — converting first would put fractions on every button. The resulting total
+is converted to kilograms by the same path a typed weight takes.
+
+**Bar and per-side settings live on the exercise, not the workout.** One
+session realistically mixes a barbell (bar 45, both sides), a leg press (bar 0,
+both sides) and the odd single-horn machine, so anything coarser means
+re-answering the question every few sets. They ride along in the draft and are
+optional, so a draft written before the panel existed still restores.
+
+**A body measurement is one row, not one column.** `BodyMetric` is a long,
+narrow table — user, kind, value, timestamp — rather than a wide row per
+measuring session with a nullable column per metric. You rarely measure
+everything at once, so those rows would be mostly nulls, and "what is my
+current height" would become a hunt for the newest row where that column
+happened to be filled in. One row per reading makes each metric an independent
+time series, which is exactly the shape the chart wants, and adding a waist
+measurement later is an enum value rather than a migration.
+
+The price is that `value` carries no unit of its own: it means kilograms,
+centimetres or percent depending on `kind`. That mapping is written down once,
+in `BODY_METRICS` in `src/lib/body.ts`, and nothing outside that file reads a
+raw value without going through it.
+
+**Height has no unit setting of its own.** It follows the weight preference —
+lb gives you two boxes for feet and inches, kg gives you one for centimetres —
+so there is one unit question in the app instead of two nearly identical ones.
+Someone who wants kilograms with feet isn't served, which is the deliberate
+trade. Storage is canonical centimetres regardless, for the same reason weights
+are canonical in kilograms.
+
+Height plots in whole inches for an imperial user rather than feet and inches,
+because a chart axis needs a single number and 5′ 11″ isn't one.
+
+**Measurement dates come from the client, unlike workout times.** A workout's
+`startedAt` is whatever the server clock said, because it records something the
+app watched happen. A weigh-in is something you did before you opened the app,
+and logging this morning's number tonight is the normal case — so the date
+picker is real, bounded server-side to "not in the future".
+
+That date is parsed from its parts rather than with `new Date("2026-07-15")`,
+which reads a bare date as UTC midnight; anywhere west of Greenwich that lands
+on the previous day in local time, and this morning's weigh-in charts as
+yesterday. Today keeps the live clock so two weigh-ins on one day stay in the
+order they were entered, and any earlier day is pinned to local noon, far
+enough from both midnights that a daylight-saving shift can't move it.
+
+**BMI is derived and deliberately uncategorised.** It is computed from the
+latest weight and height on read, never stored — the same rule as volume. It's
+shown as a bare number with no "normal/overweight" label attached, because BMI
+cannot tell muscle from fat, and in an app whose entire purpose is adding
+muscle that label would be worse than no label.
+
 **The in-progress draft is mirrored to localStorage, not to the database.**
 Autosaving to the server would mean a write per keystroke and `Exercise` rows
 existing for workouts that were never finished; keeping the draft in the browser
@@ -358,6 +453,13 @@ Two things are already in place for this:
 - **`Avatar`** already falls back to initials, which is what a friends list
   needs for people who haven't set a photo.
 
+One thing to decide deliberately when this lands: **body measurements should
+not ride along with workouts.** Volume and workout counts are the sociable
+numbers; someone's weight and body fat are the ones they may well not want a
+training partner reading, and a feed that shares them by default is a feed
+people quietly stop using. Whatever `areFriends` unlocks, `BodyMetric` should
+stay behind its own explicit opt-in, or out of the friends view entirely.
+
 Worth deciding early: how much a friend can see. Totals and workout names are a
 gentler default than every set of every session, and it's much easier to loosen
 that later than to tighten it.
@@ -419,9 +521,13 @@ exists, so a resistance-based score is only ever comparable to itself. That is
 still useful for tracking your own progress, and it is not a cross-machine
 strain metric — presenting it as one would be the mistake.
 
-Note also that kilocalories need bodyweight, which the app doesn't store today
-(there's a weight *unit* preference, but no bodyweight). MET-minutes don't, so
-it's the metric that can ship without adding a new field to `User`.
+Kilocalories need bodyweight, and as of the Body screen the app has it: the
+most recent `WEIGHT` reading via `getLatestMetric` in `src/lib/body.ts`. Two
+things follow. Use the weight recorded *nearest the session being scored*
+rather than today's, or every past workout silently restates itself every time
+you step on the scale. And handle the user who has never logged a weight —
+MET-minutes still work without one, so kilocalories should be the part that
+quietly disappears, not the whole score.
 
 ### Coaching over MCP
 
@@ -455,6 +561,13 @@ Unordered, and all optional — prune freely:
 - **Edit a finished workout.** Right now a saved workout can only be deleted.
   Fixing a typo'd weight means re-logging the whole thing.
 - **Search on the Exercises list.** Fine at five movements, unwieldy at fifty.
+- **A custom bar weight.** The panel offers 0/45/35 (0/20/15 in kg), which
+  misses a trap bar or a 33 lb women's bar. Those still work by typing the
+  total; a free-text bar field would cover them properly.
+- **Carrying the last session's plates into the next one.** The panel already
+  remembers the bar and sides per exercise within a workout, but starts from
+  nothing next time. What "you benched 185 last Tuesday" needs is the exercise
+  history that `src/lib/exercises.ts` already computes.
 - **Estimated 1RM** as a third metric on the progress chart, alongside top
   weight and volume. Deliberately left out for now because it's a computed
   figure that needs explaining.
@@ -465,6 +578,15 @@ Unordered, and all optional — prune freely:
   `distanceM` on `CardioEntry`, canonical in metres for the same reason weights
   are canonical in kilograms — best done in the same pass as the machine
   settings above, since it's the same migration and the same unit question.
+- **A smoothed weight trend.** Day-to-day bodyweight swings by a couple of
+  pounds on water alone, so the raw line is noisier than the change it's
+  describing. A trailing average plotted over the points would read the trend
+  better — derived on read, like everything else.
+- **Tape measurements** — waist, chest, arms. The schema already takes them:
+  a new `BodyMetricKind` and a row in `BODY_METRICS`, no migration of existing
+  data and no new screen.
+- **Editing a measurement**, rather than deleting and re-logging it. Same gap
+  as finished workouts have, and worth fixing in the same pass.
 - **Routines / templates** — start a workout pre-filled with the exercises you
   always do on push day.
 - **Personal-best badges** when a set beats your previous best for a movement.
