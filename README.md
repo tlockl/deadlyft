@@ -237,12 +237,28 @@ sign-in fails on a fresh deployment, check the certificate before the password.
 The old SQLite database holds real accounts, workouts and profile photos.
 `scripts/sqlite-to-postgres.js` moves all of it in one transaction.
 
-Copy `dev.db` to the server, then, with the stack up:
+Copy `dev.db` into a directory of its own on the server:
 
 ```bash
-docker compose run --rm -v /path/to/dev.db:/app/dev.db migrate \
+mkdir -p ~/deadlyft-import
+scp dev.db you@server:~/deadlyft-import/
+```
+
+Then, with the stack up:
+
+```bash
+docker compose run --rm -v ~/deadlyft-import:/import \
+  -e SQLITE_PATH=/import/dev.db migrate \
   node scripts/sqlite-to-postgres.js --dry-run
 ```
+
+Mount the **directory**, not the file. Docker silently creates an empty
+directory when a bind mount's source path doesn't exist on the host, so
+`-v ~/somewhere/dev.db:/app/dev.db` with the file not yet copied leaves a
+directory where the database should be — and a later `scp` then lands the file
+*inside* it, so the mount stays broken however many times you retry. Mounting
+the containing directory fails cleanly instead, with the script reporting that
+there's no file at the path.
 
 The dry run reports what it found and parses every timestamp without writing
 anything. If the counts look right, drop `--dry-run`.

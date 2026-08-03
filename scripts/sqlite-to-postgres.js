@@ -22,6 +22,7 @@
  *     trying to merge. Re-running after a failure is safe precisely because
  *     the failure rolled back.
  */
+const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
 const { Client } = require("pg");
@@ -108,7 +109,65 @@ function quoted(columns) {
   return columns.map((column) => `"${column}"`).join(", ");
 }
 
+/**
+ * Checks the file before better-sqlite3 gets it.
+ *
+ * Opened cold, a bad path produces `SqliteError: disk I/O error` with a stack
+ * inside the driver, which says nothing about the actual problem. The one that
+ * matters is the bind mount: Docker silently creates an empty *directory* when
+ * a `-v` source path doesn't exist on the host, so a mistyped path or a copy
+ * that never happened arrives as a directory where the database should be --
+ * and a later `scp` then lands the file *inside* it, leaving the mount pointing
+ * at a directory for good.
+ */
+function assertReadableSqlite(file) {
+  let stat;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    throw new Error(
+      `No file at ${file}.\n` +
+        "If this is running in a container, check the -v source path exists on the host.",
+    );
+  }
+
+  if (stat.isDirectory()) {
+    throw new Error(
+      `${file} is a directory, not a database.\n` +
+        "Docker creates an empty directory when a bind mount's source path is\n" +
+        "missing on the host, so this usually means the file wasn't where -v\n" +
+        "said it was. Check the host path (a later copy may have landed the\n" +
+        "database inside this directory), remove the directory Docker created,\n" +
+        "and put the file there before re-running.",
+    );
+  }
+  if (!stat.isFile()) {
+    throw new Error(`${file} is not a regular file.`);
+  }
+  if (stat.size === 0) {
+    throw new Error(`${file} is empty. An interrupted copy?`);
+  }
+
+  // Every SQLite database begins with this, so a truncated or partial transfer
+  // is caught here rather than as an I/O error partway through reading.
+  const header = Buffer.alloc(16);
+  const fd = fs.openSync(file, "r");
+  try {
+    fs.readSync(fd, header, 0, 16, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (header.toString("latin1", 0, 15) !== "SQLite format 3") {
+    throw new Error(
+      `${file} doesn't start like a SQLite database (${stat.size} bytes).\n` +
+        "Most likely a partial copy — check the size against the original.",
+    );
+  }
+}
+
 async function main() {
+  assertReadableSqlite(SQLITE_PATH);
+
   const sqlite = new Database(SQLITE_PATH, { readonly: true, fileMustExist: true });
   const pg = CONNECT
     ? new Client({ connectionString: process.env.DATABASE_URL })
@@ -234,4 +293,10 @@ async function main() {
   }
 }
 
-main();
+// The preflight above runs before any connection is opened, so its failures
+// land here rather than in main's own handler. Reported the same way: a
+// sentence, not a stack trace from inside a driver.
+main().catch((error) => {
+  console.error(`\nMigration failed: ${error.message}`);
+  process.exitCode = 1;
+});
