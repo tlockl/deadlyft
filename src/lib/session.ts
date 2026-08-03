@@ -2,13 +2,31 @@ import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
-const secret = process.env.SESSION_SECRET;
-if (!secret) {
-  throw new Error(
-    "SESSION_SECRET is not set. Add it to .env (see .env.example).",
-  );
+/**
+ * Checked on first use, not at module load.
+ *
+ * `next build` evaluates every route's module graph to collect page data, and
+ * it does that in an image build where no secret is set -- so throwing up here
+ * fails the build itself, reported as "Failed to collect page data" for
+ * whichever route the build workers happened to reach first. Deferring it
+ * keeps the guard (nothing can sign a cookie with an absent key) while letting
+ * a build run without production secrets, which is what makes it possible to
+ * build the image before the environment exists.
+ */
+let encodedKey: Uint8Array | undefined;
+
+function key(): Uint8Array {
+  if (!encodedKey) {
+    const secret = process.env.SESSION_SECRET;
+    if (!secret) {
+      throw new Error(
+        "SESSION_SECRET is not set. Add it to .env (see .env.example).",
+      );
+    }
+    encodedKey = new TextEncoder().encode(secret);
+  }
+  return encodedKey;
 }
-const encodedKey = new TextEncoder().encode(secret);
 
 export const SESSION_COOKIE = "session";
 const SESSION_DAYS = 30;
@@ -20,7 +38,7 @@ export async function encrypt(payload: SessionPayload): Promise<string> {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${SESSION_DAYS}d`)
-    .sign(encodedKey);
+    .sign(key());
 }
 
 export async function decrypt(
@@ -29,7 +47,7 @@ export async function decrypt(
   if (!token) return null;
 
   try {
-    const { payload } = await jwtVerify(token, encodedKey, {
+    const { payload } = await jwtVerify(token, key(), {
       algorithms: ["HS256"],
     });
     return typeof payload.userId === "string"

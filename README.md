@@ -144,9 +144,14 @@ separate Postgres.
 
 ### If it crashes on startup
 
-**"DATABASE_URL is not set"** — the app refuses to boot without one rather than
-failing later inside a request. There is no default; a SQLite file used to be
-one, and there is no equivalent here.
+**"DATABASE_URL is not set"** — there is no default; a SQLite file used to be
+one, and there is no equivalent here. The check happens on the first query
+rather than at import, because `next build` evaluates every route's module
+graph and has to be able to do that with no environment at all — which is what
+lets the Docker image be built before the database exists. A module-load throw
+fails the build itself, reported as `Failed to collect page data` for whatever
+route the build workers reached first, which says nothing about the variable
+that actually caused it. `SESSION_SECRET` is deferred for the same reason.
 
 **A missing native module** — recent npm versions hold back dependency install
 scripts. `better-sqlite3` is only needed by the one-shot SQLite migration
