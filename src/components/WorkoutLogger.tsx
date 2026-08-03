@@ -24,12 +24,19 @@ import {
   type WorkoutDraft,
 } from "@/lib/drafts";
 import PlatePanel from "@/components/PlatePanel";
+import ExerciseNameField from "@/components/ExerciseNameField";
+import MovementNoteCard from "@/components/MovementNoteCard";
+import { exerciseKey } from "@/lib/movements";
 import { CloseIcon, PlusIcon, PlateIcon, RepeatIcon } from "@/components/icons";
 
 type LoggerProps = {
   workoutId: string;
   startedAt: number;
   unit: WeightUnit;
+  /** Movements already logged, most recent first, offered as you type a name. */
+  movements: string[];
+  /** Setup notes by normalised movement name. */
+  notes: Record<string, string>;
 };
 
 /**
@@ -65,6 +72,8 @@ function LoggerForm({
   workoutId,
   startedAt,
   unit,
+  movements,
+  notes: initialNotes,
   initialDraft,
   canSave,
 }: LoggerProps & { initialDraft: WorkoutDraft | null; canSave: boolean }) {
@@ -88,6 +97,11 @@ function LoggerForm({
   // Deliberately not part of the draft -- where you'd got to in the UI isn't
   // worth restoring, and reopening it is one tap.
   const [platesOpenFor, setPlatesOpenFor] = useState<string | null>(null);
+
+  // Notes as the server sent them, with anything saved since layered on top.
+  // Nothing revalidates this screen -- it's a client-state form that would lose
+  // what's typed -- so a note saved here has to be reflected locally.
+  const [notes, setNotes] = useState(initialNotes);
 
   // Every cardio timer on the screen reads off this one clock, so the footer
   // total and the individual readouts always agree on what time it is.
@@ -292,17 +306,18 @@ function LoggerForm({
           {exercises.map((exercise, exerciseIndex) => (
             <section
               key={exercise.id}
-              className="overflow-hidden rounded-[10px] bg-surface"
+              // No overflow-hidden here, deliberately: it would clip the name
+              // field's suggestion list to the card. The rounding it used to
+              // provide is done by the footer instead, which is the only child
+              // that reaches a corner.
+              className="rounded-[10px] bg-surface"
             >
               <div className="flex items-center gap-2 px-4 pt-3">
-                <input
+                <ExerciseNameField
                   value={exercise.name}
-                  onChange={(event) =>
-                    patchExercise(exercise.id, { name: event.target.value })
-                  }
+                  onChange={(name) => patchExercise(exercise.id, { name })}
+                  movements={movements}
                   placeholder={`Exercise ${exerciseIndex + 1}`}
-                  maxLength={80}
-                  className="min-w-0 flex-1 bg-transparent text-[17px] font-semibold outline-none"
                 />
                 {exercises.length > 1 && (
                   <button
@@ -318,6 +333,19 @@ function LoggerForm({
                     <CloseIcon className="h-[18px] w-[18px]" />
                   </button>
                 )}
+              </div>
+
+              <div className="px-4 pt-2.5">
+                <MovementNoteCard
+                  name={exercise.name}
+                  note={notes[exerciseKey(exercise.name)] ?? ""}
+                  onSaved={(body) =>
+                    setNotes((prev) => ({
+                      ...prev,
+                      [exerciseKey(exercise.name)]: body,
+                    }))
+                  }
+                />
               </div>
 
               <div className="grid grid-cols-[1.75rem_1fr_auto_1fr_1.75rem] items-center gap-x-2 gap-y-2 px-4 pt-3 pb-3">
@@ -375,7 +403,7 @@ function LoggerForm({
                 ))}
               </div>
 
-              <div className="flex border-t border-separator">
+              <div className="flex overflow-hidden rounded-b-[10px] border-t border-separator">
                 <button
                   type="button"
                   onClick={() =>

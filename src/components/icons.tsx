@@ -77,6 +77,16 @@ export function DumbbellIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A written note, for a movement's setup. */
+export function NoteIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4" y="3.5" width="16" height="17" rx="3" />
+      <path d="M8 9h8M8 13h8M8 17h5" />
+    </svg>
+  );
+}
+
 /** A weight plate, seen face on. */
 export function PlateIcon(props: SVGProps<SVGSVGElement>) {
   return (

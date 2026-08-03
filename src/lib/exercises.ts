@@ -1,33 +1,16 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { setsVolumeKg } from "@/lib/volume";
+import { exerciseKey } from "@/lib/movements";
 
-/**
- * Exercise names are free text, so "Bench Press", "bench press" and
- * "  Bench Press " all mean the same movement. Everything groups on this key,
- * and the most recent spelling is what gets displayed.
- */
-export function exerciseKey(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/** URL segment for a movement, e.g. "Pull-up / Chin-up" → "pull-up%20%2F%20chin-up". */
-export function exerciseSlug(name: string): string {
-  return encodeURIComponent(exerciseKey(name));
-}
-
-/**
- * Next hands dynamic segments over still percent-encoded, so a slug has to be
- * decoded before it can be matched back against a name.
- */
-export function decodeExerciseSlug(slug: string): string {
-  try {
-    return decodeURIComponent(slug);
-  } catch {
-    // Malformed escape — someone hand-typed a bare "%". Use it verbatim.
-    return slug;
-  }
-}
+// The name-to-key rules live in their own module so the logger can apply them
+// in the browser too; re-exported here so every existing server-side caller
+// carries on importing them from the place that owns exercises.
+export {
+  exerciseKey,
+  exerciseSlug,
+  decodeExerciseSlug,
+} from "@/lib/movements";
 
 export type ExerciseSet = { reps: number; weightKg: number };
 
@@ -150,6 +133,52 @@ export async function getExerciseSummaries(
       bestWeightKg: value.bestWeightKg,
     }))
     .sort((a, b) => b.lastPerformed.getTime() - a.lastPerformed.getTime());
+}
+
+/**
+ * The movement names the user has logged before, most recent first.
+ *
+ * This is what the logger offers as you type, and it's the whole answer to
+ * duplicate movements: "Chest Press" and "Machine Chest Press" are two
+ * different movements with two half-length charts, and nothing after the fact
+ * can tell whether that was a typo or a real distinction. Offering the name you
+ * used last time is what stops the second one being created.
+ */
+export async function getMovementNames(userId: string): Promise<string[]> {
+  return (await getExerciseSummaries(userId)).map((summary) => summary.name);
+}
+
+/**
+ * Every setup note the user has, keyed by normalised movement name.
+ *
+ * Returned as a lookup rather than a list because that's how it gets used: the
+ * logger has a name in a text field and needs the note for it, on every
+ * keystroke. Notes are small and few -- one per movement, a line or two each --
+ * so the whole set travels to the client with the page rather than being
+ * fetched per movement as the name changes.
+ */
+export async function getMovementNotes(
+  userId: string,
+): Promise<Record<string, string>> {
+  const notes = await prisma.movementNote.findMany({
+    where: { userId },
+    select: { key: true, body: true },
+  });
+
+  return Object.fromEntries(notes.map((note) => [note.key, note.body]));
+}
+
+/** One movement's setup note, or null. */
+export async function getMovementNote(
+  userId: string,
+  key: string,
+): Promise<string | null> {
+  const note = await prisma.movementNote.findUnique({
+    where: { userId_key: { userId, key } },
+    select: { body: true },
+  });
+
+  return note?.body ?? null;
 }
 
 /**

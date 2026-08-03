@@ -45,6 +45,12 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 **Logging a workout**
 
 - Tap **Start Workout** and add exercises, then sets, then weight and reps
+- **The name box offers movements you've already logged**, on focus and as you
+  type, so the second time you do something you pick last time's name instead
+  of inventing a near-miss spelling that splits the chart in two
+- **Setup notes stay with the movement.** Seat height, pin, grip — write it
+  once and it's there under the name every time you log it, instead of in a
+  separate notes app or a photo of the machine you have to go and find
 - **Load by plates instead of doing the sums.** Tap the plate button on a set
   and hit the plates you actually hung — it counts both sides and adds the bar,
   and shows its working ("45 × 2 per side + 45 bar = 225 lb"). One-sided
@@ -180,6 +186,7 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Optimistic route gating | `src/proxy.ts` |
 | Server actions | `src/app/actions/` |
 | Volume, units, exercise grouping | `src/lib/volume.ts`, `units.ts`, `exercises.ts` |
+| Movement name keys, note limits | `src/lib/movements.ts` |
 | Body measurements, height units, BMI | `src/lib/body.ts` |
 | Plate denominations and loadout maths | `src/lib/plates.ts` |
 | Cardio rules, shared wall clock | `src/lib/cardio.ts`, `clock.ts`, `chime.ts` |
@@ -308,6 +315,40 @@ change in the second they belong to.
 **A workout can be nothing but cardio.** `finishWorkout` requires at least one
 exercise *or* at least one cardio entry, not one exercise. A run on its own is
 a workout, and the count-up timer exists precisely for it.
+
+**Duplicate movements are prevented at the keyboard, not repaired later.**
+Case and surrounding whitespace already collapse to one movement, but
+"Chest Press" and "Machine Chest Press" don't, and nothing after the fact can
+tell whether that was a slip or a real distinction — by then there are two
+half-length charts and no way to know which sessions belonged to which. So the
+name box offers what you've logged before: on focus, most recent first, because
+the common case is repeating last week's movement and recognising a name beats
+remembering how you spelled it. An exact match hides the list, since there's
+nothing left to suggest.
+
+The rules that turn a name into a key live in `src/lib/movements.ts` rather
+than `exercises.ts`, which is `server-only` because it queries. Both sides of
+the wire have to agree on what counts as the same movement, and the logger
+applies them in the browser as you type.
+
+**Setup notes belong to the movement, not to the workout.** A seat height is a
+standing fact about you and that machine, not something that happened on
+Tuesday, so `MovementNote` is one row per movement keyed on the same normalised
+name that history groups under — which is what makes it show up when you type
+the name a month later. Storing one per session instead would mean re-entering
+it every time, and would leave "what is it set to" as a search back through
+history.
+
+It follows that a note is not a foreign key to anything. Exercise names are
+free text with no movements table to point at, and the note has to outlive
+every workout that mentions it — discarding the session you wrote it in
+shouldn't throw the setting away. An empty note deletes its row rather than
+storing a blank, so "no note" has exactly one representation.
+
+Free text rather than fields for seat, pin and pad, because no two machines
+agree on what they even have to set. Reading is the case that matters — you're
+standing at the machine — so the note shows in full without being tapped, and
+only editing is behind the tap.
 
 **The plate panel writes a number and keeps nothing.** It only ever sets the
 set's weight — no plate breakdown is stored on the set, and nothing about it
@@ -561,6 +602,10 @@ Unordered, and all optional — prune freely:
 - **Edit a finished workout.** Right now a saved workout can only be deleted.
   Fixing a typo'd weight means re-logging the whole thing.
 - **Search on the Exercises list.** Fine at five movements, unwieldy at fifty.
+- **Merging two movements that should have been one.** The name suggestions
+  stop new duplicates, but they can't fix a pair already in the history. What
+  that needs is a rename that rewrites every `Exercise.name` under one key, and
+  a decision about which of the two notes survives.
 - **A custom bar weight.** The panel offers 0/45/35 (0/20/15 in kg), which
   misses a trap bar or a 33 lb women's bar. Those still work by typing the
   total; a free-text bar field would cover them properly.

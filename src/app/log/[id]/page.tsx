@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
+import { getMovementNames, getMovementNotes } from "@/lib/exercises";
 import WorkoutLogger from "@/components/WorkoutLogger";
 
 export const metadata: Metadata = { title: "Logging" };
@@ -32,11 +33,21 @@ export default async function LogWorkoutPage({
     redirect(`/workout/${workout.id}`);
   }
 
+  // Both travel down with the page rather than being fetched as the user
+  // types: they're a few dozen short strings, and a round trip per keystroke
+  // in a basement gym on one bar of signal is exactly what this shouldn't do.
+  const [movements, notes] = await Promise.all([
+    getMovementNames(user.id),
+    getMovementNotes(user.id),
+  ]);
+
   return (
     <WorkoutLogger
       workoutId={workout.id}
       startedAt={workout.startedAt.getTime()}
       unit={user.unit}
+      movements={movements}
+      notes={notes}
     />
   );
 }

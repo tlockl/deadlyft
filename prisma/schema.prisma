@@ -40,9 +40,38 @@ model User {
   unit         WeightUnit @default(LB)
   createdAt    DateTime   @default(now())
 
-  workouts    Workout[]
-  photo       ProfilePhoto?
-  bodyMetrics BodyMetric[]
+  workouts       Workout[]
+  photo          ProfilePhoto?
+  bodyMetrics    BodyMetric[]
+  movementNotes  MovementNote[]
+}
+
+// What you need to remember about a movement next time you do it: the seat
+// height, which pin, which grip. Free text rather than structured fields,
+// because no two machines agree on what they even have to set.
+//
+// Keyed by the *normalised* exercise name (`exerciseKey` in
+// src/lib/exercises.ts), the same key the app already groups history under, so
+// "Chest Press" and "chest press" share one note for the same reason they share
+// one progress chart. It follows that a note is per movement, not per workout:
+// a seat setting is a standing fact about you and that machine, not something
+// worth re-recording every session.
+//
+// Deliberately not a foreign key to anything. Exercise names are free text with
+// no movements table to point at, and a note has to be able to outlive every
+// workout that mentions it -- discarding the session you wrote it in shouldn't
+// throw the setting away.
+model MovementNote {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  key  String
+  body String
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
 }
 
 // One measurement of one thing at one moment -- a weigh-in, a height, a body

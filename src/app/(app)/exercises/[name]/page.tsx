@@ -5,6 +5,7 @@ import {
   exerciseKey,
   decodeExerciseSlug,
   getExerciseHistory,
+  getMovementNote,
 } from "@/lib/exercises";
 import {
   fromKg,
@@ -17,6 +18,7 @@ import {
 import { StatTile } from "@/components/ui";
 import { ChevronLeftIcon } from "@/components/icons";
 import ExerciseProgress from "@/components/ExerciseProgress";
+import MovementNoteCard from "@/components/MovementNoteCard";
 import type { ChartPoint } from "@/components/ProgressChart";
 
 export default async function ExerciseDetailPage({
@@ -28,13 +30,14 @@ export default async function ExerciseDetailPage({
   const user = await getCurrentUser();
 
   // exerciseKey again so a hand-typed /exercises/Bench%20Press also resolves.
-  const history = await getExerciseHistory(
-    user.id,
-    exerciseKey(decodeExerciseSlug(name)),
-  );
+  const key = exerciseKey(decodeExerciseSlug(name));
+
+  const history = await getExerciseHistory(user.id, key);
   if (!history) {
     notFound();
   }
+
+  const note = await getMovementNote(user.id, key);
 
   const { sessions } = history;
 
@@ -69,7 +72,11 @@ export default async function ExerciseDetailPage({
         </p>
       </div>
 
-      <div className="mt-4 px-4">
+      <div className="mt-3 px-4">
+        <MovementNoteCard name={history.name} note={note ?? ""} />
+      </div>
+
+      <div className="mt-3 px-4">
         <ExerciseProgress
           weightPoints={toPoints((session) => session.topWeightKg)}
           volumePoints={toPoints((session) => session.volumeKg)}
