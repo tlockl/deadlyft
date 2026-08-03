@@ -2,34 +2,46 @@
  * Seeds back-dated demo workouts and body measurements, so charts and history
  * have something real to show without waiting weeks to accumulate it.
  *
- *   npm run seed
+ *   DATABASE_URL=postgres://... npm run seed
  *
  * The app deliberately records start and finish times server-side, so there is
- * no way to create a dated workout through the UI. This writes to SQLite
+ * no way to create a dated workout through the UI. This writes to the database
  * directly instead.
  *
  * Every row it creates is prefixed "seed_", so re-running replaces the demo
  * data and never touches anything you logged yourself:
  *
- *   DELETE FROM Workout WHERE id LIKE 'seed_%';
- *   DELETE FROM BodyMetric WHERE id LIKE 'seed_%';
+ *   DELETE FROM "Workout" WHERE id LIKE 'seed_%';
+ *   DELETE FROM "BodyMetric" WHERE id LIKE 'seed_%';
  *
  * Config via env:
- *   DEMO_EMAIL   account to attach the workouts to (default tristen@example.test)
- *   DATABASE     path to the SQLite file (default ./dev.db)
+ *   DATABASE_URL  Postgres connection string (required)
+ *   DEMO_EMAIL    account to attach the workouts to (default tristen@example.test)
+ *
+ * Identifiers are quoted throughout. Prisma created the tables as "User",
+ * "startedAt" and so on, and Postgres folds an unquoted identifier to lower
+ * case -- so `FROM User` looks for a table called "user" and doesn't find one.
  */
-const path = require("path");
-const Database = require("better-sqlite3");
+const { Client } = require("pg");
 
-const ROOT = path.join(__dirname, "..");
-const DB_PATH = process.env.DATABASE || path.join(ROOT, "dev.db");
 const EMAIL = process.env.DEMO_EMAIL || "tristen@example.test";
 
 const LB_TO_KG = 0.45359237;
 const DAY = 24 * 60 * 60 * 1000;
 
-// Prisma stores SQLite datetimes as ISO strings with an explicit offset.
-const iso = (ms) => new Date(ms).toISOString().replace("Z", "+00:00");
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is not set. Point it at the Postgres database.");
+  process.exit(1);
+}
+
+/*
+ * Prisma maps DateTime to `timestamp(3)`, which carries no offset and is read
+ * back as UTC. Passing a JavaScript Date would let node-postgres serialise it
+ * with the *local* offset and shift every seeded workout by that much, so the
+ * UTC wall clock goes over as a string instead.
+ */
+const stamp = (ms) =>
+  new Date(ms).toISOString().replace("T", " ").replace("Z", "");
 
 // [days ago, title, [[exercise, [[lb, reps], ...]], ...]]
 const PLAN = [
@@ -65,29 +77,6 @@ const BODY_FATS = [
 // Entered once, months ago, and never touched since.
 const HEIGHT_IN = 71;
 
-const db = new Database(DB_PATH);
-
-const user = db.prepare("SELECT id FROM User WHERE email = ?").get(EMAIL);
-if (!user) {
-  console.error(
-    `No account with email "${EMAIL}". Register it in the app first, or set DEMO_EMAIL.`,
-  );
-  process.exit(1);
-}
-
-const insertWorkout = db.prepare(
-  "INSERT INTO Workout (id, userId, title, status, startedAt, finishedAt) VALUES (?, ?, ?, 'COMPLETED', ?, ?)",
-);
-const insertExercise = db.prepare(
-  "INSERT INTO Exercise (id, workoutId, name, position) VALUES (?, ?, ?, ?)",
-);
-const insertSet = db.prepare(
-  "INSERT INTO WorkoutSet (id, exerciseId, position, reps, weightKg) VALUES (?, ?, ?, ?, ?)",
-);
-const insertMetric = db.prepare(
-  "INSERT INTO BodyMetric (id, userId, kind, value, recordedAt) VALUES (?, ?, ?, ?, ?)",
-);
-
 // A measurement is a morning thing, so put the weigh-ins before breakfast
 // rather than at whatever time the script ran.
 const morningOf = (daysAgo) => {
@@ -96,81 +85,128 @@ const morningOf = (daysAgo) => {
   return day.getTime();
 };
 
-db.transaction(() => {
-  db.prepare("DELETE FROM Workout WHERE id LIKE 'seed_%'").run();
-  db.prepare("DELETE FROM BodyMetric WHERE id LIKE 'seed_%'").run();
+const INSERT_WORKOUT =
+  'INSERT INTO "Workout" ("id", "userId", "title", "status", "startedAt", "finishedAt") ' +
+  "VALUES ($1, $2, $3, 'COMPLETED'::\"WorkoutStatus\", $4, $5)";
+const INSERT_EXERCISE =
+  'INSERT INTO "Exercise" ("id", "workoutId", "name", "position") VALUES ($1, $2, $3, $4)';
+const INSERT_SET =
+  'INSERT INTO "WorkoutSet" ("id", "exerciseId", "position", "reps", "weightKg") ' +
+  "VALUES ($1, $2, $3, $4, $5)";
+const INSERT_METRIC =
+  'INSERT INTO "BodyMetric" ("id", "userId", "kind", "value", "recordedAt") ' +
+  'VALUES ($1, $2, $3::"BodyMetricKind", $4, $5)';
 
-  insertMetric.run(
-    "seed_bh",
-    user.id,
-    "HEIGHT",
-    HEIGHT_IN * 2.54,
-    iso(morningOf(56)),
-  );
+async function main() {
+  const db = new Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
 
-  WEIGH_INS.forEach(([daysAgo, lb], i) => {
-    insertMetric.run(
-      `seed_bw${i}`,
-      user.id,
-      "WEIGHT",
-      lb * LB_TO_KG,
-      iso(morningOf(daysAgo)),
+  try {
+    const { rows } = await db.query('SELECT "id" FROM "User" WHERE "email" = $1', [
+      EMAIL,
+    ]);
+    if (rows.length === 0) {
+      throw new Error(
+        `No account with email "${EMAIL}". Register it in the app first, or set DEMO_EMAIL.`,
+      );
+    }
+    const userId = rows[0].id;
+
+    await db.query("BEGIN");
+
+    await db.query(`DELETE FROM "Workout" WHERE "id" LIKE 'seed_%'`);
+    await db.query(`DELETE FROM "BodyMetric" WHERE "id" LIKE 'seed_%'`);
+
+    await db.query(INSERT_METRIC, [
+      "seed_bh",
+      userId,
+      "HEIGHT",
+      HEIGHT_IN * 2.54,
+      stamp(morningOf(56)),
+    ]);
+
+    for (const [i, [daysAgo, lb]] of WEIGH_INS.entries()) {
+      await db.query(INSERT_METRIC, [
+        `seed_bw${i}`,
+        userId,
+        "WEIGHT",
+        lb * LB_TO_KG,
+        stamp(morningOf(daysAgo)),
+      ]);
+    }
+
+    for (const [i, [daysAgo, percent]] of BODY_FATS.entries()) {
+      await db.query(INSERT_METRIC, [
+        `seed_bf${i}`,
+        userId,
+        "BODY_FAT",
+        percent,
+        stamp(morningOf(daysAgo)),
+      ]);
+    }
+
+    for (const [w, [daysAgo, title, exercises]] of PLAN.entries()) {
+      // Land each session at a varied evening hour rather than whatever time
+      // the script happened to run, so the history doesn't read as machine-made.
+      const day = new Date(Date.now() - daysAgo * DAY);
+      day.setHours(17 + (w % 3), (w * 17) % 60, 0, 0);
+      const startedAt = day.getTime();
+      const duration = (44 + ((w * 7) % 25)) * 60 * 1000;
+
+      const workoutId = `seed_w${w}`;
+      await db.query(INSERT_WORKOUT, [
+        workoutId,
+        userId,
+        title,
+        stamp(startedAt),
+        stamp(startedAt + duration),
+      ]);
+
+      for (const [e, [name, sets]] of exercises.entries()) {
+        const exerciseId = `seed_e${w}_${e}`;
+        await db.query(INSERT_EXERCISE, [exerciseId, workoutId, name, e]);
+        for (const [s, [lb, reps]] of sets.entries()) {
+          await db.query(INSERT_SET, [
+            `seed_s${w}_${e}_${s}`,
+            exerciseId,
+            s,
+            reps,
+            lb * LB_TO_KG,
+          ]);
+        }
+      }
+    }
+
+    await db.query("COMMIT");
+
+    // MAX(name) rather than a bare `e."name"`: Postgres requires every
+    // selected column to be grouped or aggregated, and the grouping here is on
+    // LOWER(name) so that spellings collapse the way the app collapses them.
+    const summary = await db.query(
+      `SELECT MAX(e."name") AS name,
+              COUNT(DISTINCT w."id")::int AS sessions,
+              ROUND(MAX(s."weightKg") / ${LB_TO_KG}) AS "bestLb"
+         FROM "Exercise" e
+         JOIN "Workout" w ON w."id" = e."workoutId"
+         JOIN "WorkoutSet" s ON s."exerciseId" = e."id"
+        WHERE w."userId" = $1
+     GROUP BY LOWER(e."name")
+     ORDER BY sessions DESC`,
+      [userId],
     );
-  });
 
-  BODY_FATS.forEach(([daysAgo, percent], i) => {
-    insertMetric.run(
-      `seed_bf${i}`,
-      user.id,
-      "BODY_FAT",
-      percent,
-      iso(morningOf(daysAgo)),
+    console.log(
+      `seeded ${PLAN.length} workouts, ${WEIGH_INS.length} weigh-ins, ` +
+        `${BODY_FATS.length} body fat readings and a height for ${EMAIL}`,
     );
-  });
+    console.table(summary.rows);
+  } catch (error) {
+    await db.query("ROLLBACK").catch(() => {});
+    console.error(`Seeding failed: ${error.message}`);
+    process.exitCode = 1;
+  } finally {
+    await db.end();
+  }
+}
 
-  PLAN.forEach(([daysAgo, title, exercises], w) => {
-    // Land each session at a varied evening hour rather than whatever time the
-    // script happened to run, so the history doesn't read as machine-made.
-    const day = new Date(Date.now() - daysAgo * DAY);
-    day.setHours(17 + (w % 3), (w * 17) % 60, 0, 0);
-    const startedAt = day.getTime();
-    const duration = (44 + ((w * 7) % 25)) * 60 * 1000;
-
-    const workoutId = `seed_w${w}`;
-    insertWorkout.run(
-      workoutId,
-      user.id,
-      title,
-      iso(startedAt),
-      iso(startedAt + duration),
-    );
-
-    exercises.forEach(([name, sets], e) => {
-      const exerciseId = `seed_e${w}_${e}`;
-      insertExercise.run(exerciseId, workoutId, name, e);
-      sets.forEach(([lb, reps], s) => {
-        insertSet.run(`seed_s${w}_${e}_${s}`, exerciseId, s, reps, lb * LB_TO_KG);
-      });
-    });
-  });
-})();
-
-const summary = db
-  .prepare(
-    `SELECT e.name,
-            COUNT(DISTINCT w.id) AS sessions,
-            ROUND(MAX(s.weightKg) / ${LB_TO_KG}) AS bestLb
-       FROM Exercise e
-       JOIN Workout w ON w.id = e.workoutId
-       JOIN WorkoutSet s ON s.exerciseId = e.id
-      WHERE w.userId = ?
-   GROUP BY LOWER(e.name)
-   ORDER BY sessions DESC`,
-  )
-  .all(user.id);
-
-console.log(
-  `seeded ${PLAN.length} workouts, ${WEIGH_INS.length} weigh-ins, ` +
-    `${BODY_FATS.length} body fat readings and a height for ${EMAIL}`,
-);
-console.table(summary);
+main();

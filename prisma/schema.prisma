@@ -12,8 +12,13 @@ generator client {
   output   = "../src/generated/prisma"
 }
 
+// Postgres rather than the file-backed SQLite this started on. A single file
+// is a genuinely good fit for one person on one machine, and it stayed that way
+// deliberately for as long as that was true. It stops being true the moment the
+// app runs somewhere with more than one process in front of it, or on a host
+// whose disk isn't guaranteed to be the same disk next week.
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 enum WeightUnit {
