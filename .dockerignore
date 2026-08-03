@@ -1,0 +1,32 @@
+# Keep the build context small, and keep secrets and real data out of the image.
+
+node_modules
+.next
+.git
+.github
+
+# The old SQLite database holds real accounts, workout history and profile
+# photos. It must never be baked into an image — the migration reads it from
+# the host, once. See scripts/sqlite-to-postgres.js.
+dev.db
+dev.db-journal
+dev.db-wal
+dev.db-shm
+*.sqlite
+*.sqlite3
+
+# Secrets come from the environment at run time, never from the image.
+.env
+.env.*
+!.env.example
+
+# Generated at build time by `prisma generate`, so a stale copy from the host
+# would be copied over and then overwritten anyway.
+src/generated
+
+# Local-only tooling and output.
+.claude
+.vscode
+.DS_Store
+screenshots
+*.log

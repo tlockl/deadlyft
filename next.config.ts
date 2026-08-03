@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Emits .next/standalone: a self-contained server plus only the node_modules
+  // it actually reached for. The Docker image then carries that instead of the
+  // full dependency tree, which is the difference between a ~200MB image and a
+  // ~1GB one.
+  output: "standalone",
+
   // The dev server blocks cross-origin requests to its own dev-only assets
   // (the HMR socket in particular). Reaching the dev server from a phone on the
   // same Wi-Fi is cross-origin -- the phone asks for 192.168.x.x, not localhost

@@ -1,0 +1,72 @@
+# The beta stack: Postgres, a one-shot migration, and the app.
+#
+#   cp .env.example .env   # fill in POSTGRES_PASSWORD and SESSION_SECRET
+#   docker compose up -d --build
+#
+# Postgres is deliberately not published to the host. Nothing outside this
+# network needs to reach it, and an exposed 5432 is the most common way a small
+# deployment gets found. To run psql or the migration script against it, go
+# through the container — see the README's deployment section.
+
+x-db-url: &db-url
+  DATABASE_URL: postgres://${POSTGRES_USER:-deadlyft}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-deadlyft}
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-deadlyft}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-deadlyft}
+    volumes:
+      # A named volume, not a bind mount: this is the database, and it has to
+      # survive `docker compose down` and every rebuild of the image.
+      - deadlyft-db:/var/lib/postgresql/data
+    healthcheck:
+      # Migrations must not run against a Postgres that is still coming up.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deadlyft} -d ${POSTGRES_DB:-deadlyft}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # Runs to completion, then the app starts. Built from the `build` stage,
+  # which has the Prisma CLI, the schema and the TypeScript loader that
+  # prisma.config.ts needs — none of which belong in the slim runtime image.
+  #
+  # `migrate deploy` only applies migrations that haven't run yet and never
+  # generates or resets anything, so it is safe on every boot: deploying a
+  # schema change is just pulling the new image and bringing the stack up. A
+  # failure here stops the app from starting at all, which is what you want —
+  # a visibly failed migration beats an app serving against a half-built schema.
+  migrate:
+    build:
+      context: .
+      target: build
+    command: npx prisma migrate deploy
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment: *db-url
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *db-url
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      NODE_ENV: production
+    ports:
+      # Bound to localhost: put a reverse proxy in front to terminate TLS.
+      # Session cookies are set Secure in production, so the app is only usable
+      # over HTTPS. Change this to "3000:3000" only for a throwaway test, and
+      # expect sign-in to fail over plain HTTP when you do.
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  deadlyft-db:
