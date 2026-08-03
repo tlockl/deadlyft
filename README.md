@@ -105,7 +105,14 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 
 ## Getting it running
 
-You'll need **Node 20 or newer**.
+You'll need **Node 20 or newer** and a **Postgres 14+** you can reach. The
+quickest local one is the Compose stack's own database:
+
+```bash
+docker compose up -d db
+```
+
+Then:
 
 ```bash
 npm install
@@ -114,14 +121,15 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
-Then open `.env` and set a session secret — this signs the login cookie, so it
-must not be blank:
+Open `.env` and set a session secret — this signs the login cookie, so it must
+not be blank:
 
 ```bash
 openssl rand -base64 32
 ```
 
-Paste the result as `SESSION_SECRET="..."`. Now start it:
+Paste the result as `SESSION_SECRET="..."`, point `DATABASE_URL` at your
+Postgres, and start it:
 
 ```bash
 npm run dev
@@ -129,10 +137,20 @@ npm run dev
 
 Open <http://localhost:3000> and create an account.
 
+Note that `docker compose up -d db` doesn't publish 5432 to the host — the
+stack keeps the database on its private network on purpose. For local
+development against it, either add a `ports` mapping temporarily or run a
+separate Postgres.
+
 ### If it crashes on startup
 
-If you see an error about a missing native module, `better-sqlite3` didn't
-finish compiling — recent npm versions hold back dependency install scripts:
+**"DATABASE_URL is not set"** — the app refuses to boot without one rather than
+failing later inside a request. There is no default; a SQLite file used to be
+one, and there is no equivalent here.
+
+**A missing native module** — recent npm versions hold back dependency install
+scripts. `better-sqlite3` is only needed by the one-shot SQLite migration
+script now, but it still has to compile:
 
 ```bash
 npm rebuild better-sqlite3
@@ -165,13 +183,89 @@ router ranges to prevent this.
 
 ### Starting over
 
-The database is a single file. To wipe everything and begin fresh:
+To wipe everything and begin fresh:
 
 ```bash
-rm dev.db && npx prisma migrate dev
+npx prisma migrate reset
 ```
 
-To move your data to another machine, copy `dev.db` across — photos and all.
+---
+
+## Deploying it
+
+One box, three containers: Postgres, a one-shot migration, and the app.
+
+```bash
+cp .env.example .env      # set POSTGRES_PASSWORD and SESSION_SECRET
+docker compose up -d --build
+```
+
+The app listens on `127.0.0.1:3000`. Put a reverse proxy in front of it to
+terminate TLS.
+
+**HTTPS is not optional.** The session cookie is set `Secure` when
+`NODE_ENV=production`, so over plain HTTP the browser accepts the login,
+silently drops the cookie, and bounces you straight back to the login page —
+which looks like wrong credentials rather than a missing certificate. If
+sign-in fails on a fresh deployment, check the certificate before the password.
+
+### Bringing your existing data across
+
+The old SQLite database holds real accounts, workouts and profile photos.
+`scripts/sqlite-to-postgres.js` moves all of it in one transaction.
+
+Copy `dev.db` to the server, then, with the stack up:
+
+```bash
+docker compose run --rm -v /path/to/dev.db:/app/dev.db migrate \
+  node scripts/sqlite-to-postgres.js --dry-run
+```
+
+The dry run reports what it found and parses every timestamp without writing
+anything. If the counts look right, drop `--dry-run`.
+
+Three things make this safe to attempt:
+
+- The SQLite file is opened **read-only**, so whatever happens, the thing
+  you're migrating away from is intact afterwards.
+- Everything happens in **one transaction**. A failure on the last row leaves
+  an empty database, not a half-populated one, so re-running is safe.
+- It **refuses to run against a database that already has rows** rather than
+  trying to merge, and it compares row counts on both sides before committing.
+
+### Backups
+
+The database is no longer a file you can copy, so this now needs doing on
+purpose:
+
+```bash
+docker compose exec -T db pg_dump -U deadlyft deadlyft | gzip > deadlyft-$(date +%F).sql.gz
+```
+
+Restore into an empty database with:
+
+```bash
+gunzip -c deadlyft-2026-08-03.sql.gz | docker compose exec -T db psql -U deadlyft deadlyft
+```
+
+Profile photos live in the database as `bytea`, so they're included — which is
+the upside of having kept them out of the filesystem.
+
+### A psql session
+
+```bash
+docker compose exec db psql -U deadlyft deadlyft
+```
+
+### Deploying a change
+
+```bash
+git pull && docker compose up -d --build
+```
+
+`migrate deploy` runs before the app starts and applies only migrations that
+haven't run yet. If it fails, the app doesn't start — a visibly failed
+migration is better than an app serving against a half-built schema.
 
 ---
 
@@ -180,7 +274,8 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Area | Where |
 | --- | --- |
 | Database schema | `prisma/schema.prisma` |
-| Prisma client + SQLite adapter | `src/lib/prisma.ts` |
+| Prisma client + Postgres adapter | `src/lib/prisma.ts` |
+| Deployment stack | `Dockerfile`, `docker-compose.yml` |
 | Session cookies (JWT via `jose`) | `src/lib/session.ts` |
 | Auth checks / current user | `src/lib/dal.ts` |
 | Optimistic route gating | `src/proxy.ts` |
@@ -315,6 +410,43 @@ change in the second they belong to.
 **A workout can be nothing but cardio.** `finishWorkout` requires at least one
 exercise *or* at least one cardio entry, not one exercise. A run on its own is
 a workout, and the count-up timer exists precisely for it.
+
+**Postgres now, SQLite for as long as it was honest.** A single file was a
+genuinely good fit for one person on one machine: no second service, and the
+whole database was something you could copy between laptops. That stopped being
+true once other people were logging workouts and it needed to run somewhere
+permanently, so the datasource is Postgres and the driver adapter is
+`@prisma/adapter-pg`. The migration history was re-baselined rather than
+translated — migration SQL is dialect-specific, so the SQLite ones could never
+have replayed against Postgres. They're in the git history if they're ever
+wanted.
+
+Almost nothing in the app had to change, because almost nothing knew. The
+case-insensitive movement grouping was already done in JS rather than in SQL
+(Prisma has no case-insensitive matching on SQLite), which turned out to be
+portable by accident. The two places that *did* know were the maintenance
+scripts, which talked to the file directly.
+
+**Timestamps are the thing to be careful about when moving the data.** Prisma
+maps `DateTime` to `timestamp(3)` — no offset, read back as UTC — and
+node-postgres serialises a JavaScript `Date` using the *local* offset. Hand it
+a Date on a machine that isn't UTC and every row shifts by that offset:
+workouts at the wrong hour, back-dated weigh-ins on the wrong day, and nothing
+that looks like an error. Both scripts normalise to a UTC wall-clock string
+instead and never pass a Date.
+
+**The migration script refuses more than it does.** It opens SQLite read-only,
+runs in one transaction, declines to touch a database that already has rows,
+and compares row counts on both sides *before* committing. Data that exists in
+exactly one place deserves a script whose failure mode is "nothing happened".
+
+**Migrations run as their own container, not on app start.** Running them from
+an entrypoint in the runtime image would mean shipping the Prisma CLI in it,
+and the CLI needs more than the standalone bundle carries — including a
+TypeScript loader for `prisma.config.ts`. A one-shot service built from the
+build stage already has all of it, and the app depends on that service
+*completing*, so a failed migration stops the deployment instead of producing
+an app serving against a half-built schema.
 
 **Duplicate movements are prevented at the keyboard, not repaired later.**
 Case and surrounding whitespace already collapse to one movement, but
@@ -635,6 +767,11 @@ Unordered, and all optional — prune freely:
 - **Routines / templates** — start a workout pre-filled with the exercises you
   always do on push day.
 - **Personal-best badges** when a set beats your previous best for a movement.
-- **Deploying it properly** so it's reachable without being on your home
-  Wi-Fi. Note that file-backed SQLite doesn't survive serverless hosting —
-  that would mean pointing the Prisma datasource at Postgres instead.
+- **A health endpoint and something watching it.** `docker compose ps` says the
+  container is up, not that the app can reach the database. A route that runs
+  `SELECT 1` would be the difference.
+- **Automating the backup.** The `pg_dump` above is a command you have to
+  remember to run; it wants to be a cron job writing somewhere off the box,
+  because a backup on the same disk as the database isn't one.
+- **Rate limiting on login.** Fine while the app was on your Wi-Fi. Once it has
+  a public address, an unthrottled password endpoint is the obvious way in.
