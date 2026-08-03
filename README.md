@@ -148,6 +148,15 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Volume, units, exercise grouping | `src/lib/volume.ts`, `units.ts`, `exercises.ts` |
 | Screens | `src/app/(app)/`, `src/app/log/[id]/` |
 | Design tokens | `src/app/globals.css` |
+| Maintenance scripts | `scripts/` (see [scripts/README.md](scripts/README.md)) |
+
+### Maintenance scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run icons` | Regenerates every icon from `assets/icon-source.png` |
+| `npm run seed` | Fills the demo account with back-dated workouts |
+| `npm run screenshots` | Recaptures the screenshots above |
 
 ### Screens
 
