@@ -17,7 +17,23 @@ import { useSyncExternalStore } from "react";
  */
 
 export type SetDraft = { id: string; reps: string; weight: string };
-export type ExerciseDraft = { id: string; name: string; sets: SetDraft[] };
+
+export type ExerciseDraft = {
+  id: string;
+  name: string;
+  sets: SetDraft[];
+  /**
+   * How the plate panel is set up for this movement, in display units. Per
+   * exercise rather than per workout because one session realistically mixes a
+   * barbell (bar 45, both sides), a leg press (bar 0, both sides) and the odd
+   * single-horn machine, and re-answering that on every set is the annoyance
+   * the panel exists to remove.
+   *
+   * Optional so a draft written before the panel existed still restores.
+   */
+  bar?: number;
+  perSide?: boolean;
+};
 
 export type CardioDraft = {
   id: string;
@@ -134,13 +150,23 @@ function parseSet(value: unknown): SetDraft | null {
 
 function parseExercise(value: unknown): ExerciseDraft | null {
   if (!isRecord(value)) return null;
-  const { id, name, sets } = value;
+  const { id, name, sets, bar, perSide } = value;
   if (!isText(id) || !isText(name) || !Array.isArray(sets)) return null;
 
   const parsed = sets.map(parseSet);
   if (parsed.some((set) => set === null)) return null;
 
-  return { id: reserveId(id), name, sets: parsed as SetDraft[] };
+  return {
+    id: reserveId(id),
+    name,
+    sets: parsed as SetDraft[],
+    // Absent on a draft saved before the plate panel shipped, and on any
+    // exercise whose panel was never opened. Dropped rather than rejected if
+    // they're the wrong shape: the plate settings are an input convenience, and
+    // throwing away a whole workout's sets over one of them would be absurd.
+    ...(isCount(bar) ? { bar } : {}),
+    ...(typeof perSide === "boolean" ? { perSide } : {}),
+  };
 }
 
 function parseCardio(value: unknown): CardioDraft | null {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useState, useTransition } from "react";
 import type { WeightUnit } from "@/generated/prisma/enums";
 import { finishWorkout, discardWorkout } from "@/app/actions/workouts";
 import { toKg, formatVolume, formatStopwatch, unitLabel } from "@/lib/units";
@@ -23,7 +23,8 @@ import {
   type SetDraft,
   type WorkoutDraft,
 } from "@/lib/drafts";
-import { CloseIcon, PlusIcon } from "@/components/icons";
+import PlatePanel from "@/components/PlatePanel";
+import { CloseIcon, PlusIcon, PlateIcon, RepeatIcon } from "@/components/icons";
 
 type LoggerProps = {
   workoutId: string;
@@ -81,6 +82,12 @@ function LoggerForm({
   const [error, setError] = useState<string | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  // Which set has the plate panel open, if any. One at a time: it's a wide
+  // panel and two of them would push the set you're loading off the screen.
+  // Deliberately not part of the draft -- where you'd got to in the UI isn't
+  // worth restoring, and reopening it is one tap.
+  const [platesOpenFor, setPlatesOpenFor] = useState<string | null>(null);
 
   // Every cardio timer on the screen reads off this one clock, so the footer
   // total and the individual readouts always agree on what time it is.
@@ -144,6 +151,27 @@ function LoggerForm({
           : ex,
       ),
     );
+  }
+
+  /**
+   * Logs the same set again, because most sets after the first are the same
+   * set again. Copies the most recent set that actually has reps in it, and
+   * fills the trailing blank row if "Add Set" already left one lying there
+   * rather than stacking a second empty row underneath it.
+   */
+  function repeatLastSet(exercise: ExerciseDraft) {
+    const source = lastLoggedSet(exercise);
+    if (!source) return;
+
+    const last = exercise.sets[exercise.sets.length - 1];
+    const values = { weight: source.weight, reps: source.reps };
+
+    patchExercise(exercise.id, {
+      sets:
+        last.reps === "" && last.weight === ""
+          ? exercise.sets.map((s) => (s.id === last.id ? { ...s, ...values } : s))
+          : [...exercise.sets, { ...emptySet(), ...values }],
+    });
   }
 
   function patchCardio(id: string, patch: Partial<CardioDraft>) {
@@ -292,48 +320,87 @@ function LoggerForm({
                 )}
               </div>
 
-              <div className="grid grid-cols-[1.75rem_1fr_1fr_1.75rem] items-center gap-x-2 gap-y-2 px-4 pt-3 pb-3">
+              <div className="grid grid-cols-[1.75rem_1fr_auto_1fr_1.75rem] items-center gap-x-2 gap-y-2 px-4 pt-3 pb-3">
                 <span className="text-[13px] text-label2">#</span>
                 <span className="text-center text-[13px] text-label2">
                   Weight ({unitLabel(unit)})
                 </span>
+                <span />
                 <span className="text-center text-[13px] text-label2">
                   Reps
                 </span>
                 <span />
 
                 {exercise.sets.map((set, setIndex) => (
-                  <SetRow
-                    key={set.id}
-                    index={setIndex}
-                    set={set}
-                    onChange={(patch) => patchSet(exercise.id, set.id, patch)}
-                    onRemove={
-                      exercise.sets.length > 1
-                        ? () =>
-                            patchExercise(exercise.id, {
-                              sets: exercise.sets.filter(
-                                (s) => s.id !== set.id,
-                              ),
-                            })
-                        : undefined
-                    }
-                  />
+                  <Fragment key={set.id}>
+                    <SetRow
+                      index={setIndex}
+                      set={set}
+                      unit={unit}
+                      platesOpen={platesOpenFor === set.id}
+                      onTogglePlates={() =>
+                        setPlatesOpenFor((open) =>
+                          open === set.id ? null : set.id,
+                        )
+                      }
+                      onChange={(patch) => patchSet(exercise.id, set.id, patch)}
+                      onRemove={
+                        exercise.sets.length > 1
+                          ? () =>
+                              patchExercise(exercise.id, {
+                                sets: exercise.sets.filter(
+                                  (s) => s.id !== set.id,
+                                ),
+                              })
+                          : undefined
+                      }
+                    />
+                    {platesOpenFor === set.id && (
+                      <PlatePanel
+                        unit={unit}
+                        weight={set.weight}
+                        // Both sides by default: barbells always are, and so is
+                        // most plate-loaded machinery.
+                        bar={exercise.bar ?? 0}
+                        perSide={exercise.perSide ?? true}
+                        onWeightChange={(weight) =>
+                          patchSet(exercise.id, set.id, { weight })
+                        }
+                        onSettingsChange={(patch) =>
+                          patchExercise(exercise.id, patch)
+                        }
+                      />
+                    )}
+                  </Fragment>
                 ))}
               </div>
 
-              <button
-                type="button"
-                onClick={() =>
-                  patchExercise(exercise.id, {
-                    sets: [...exercise.sets, emptySet()],
-                  })
-                }
-                className="ios-press flex w-full items-center justify-center gap-1 border-t border-separator py-[11px] text-[15px] font-medium text-accent"
-              >
-                <PlusIcon className="h-4 w-4" />
-                Add Set
-              </button>
+              <div className="flex border-t border-separator">
+                <button
+                  type="button"
+                  onClick={() =>
+                    patchExercise(exercise.id, {
+                      sets: [...exercise.sets, emptySet()],
+                    })
+                  }
+                  className="ios-press flex flex-1 items-center justify-center gap-1 py-[11px] text-[15px] font-medium text-accent"
+                >
+                  <PlusIcon className="h-4 w-4" />
+                  Add Set
+                </button>
+                {lastLoggedSet(exercise) && (
+                  <button
+                    type="button"
+                    onClick={() => repeatLastSet(exercise)}
+                    className="ios-press flex min-w-0 flex-1 items-center justify-center gap-1 border-l border-separator py-[11px] text-[15px] font-medium text-accent"
+                  >
+                    <RepeatIcon className="h-4 w-4 shrink-0" />
+                    <span className="truncate">
+                      {repeatLabel(lastLoggedSet(exercise)!)}
+                    </span>
+                  </button>
+                )}
+              </div>
             </section>
           ))}
         </div>
@@ -431,14 +498,38 @@ function LoggerForm({
   );
 }
 
+/**
+ * The most recent set with reps actually in it -- the one "repeat" means.
+ * Skips a trailing blank row, so tapping Add Set and then thinking better of it
+ * doesn't take the button away.
+ */
+function lastLoggedSet(exercise: ExerciseDraft): SetDraft | undefined {
+  for (let index = exercise.sets.length - 1; index >= 0; index -= 1) {
+    const set = exercise.sets[index];
+    if (Number.parseInt(set.reps, 10) > 0) return set;
+  }
+  return undefined;
+}
+
+/** "Repeat 185 × 5", or "Repeat × 12" for a bodyweight movement. */
+function repeatLabel(set: SetDraft): string {
+  return set.weight ? `Repeat ${set.weight} × ${set.reps}` : `Repeat × ${set.reps}`;
+}
+
 function SetRow({
   index,
   set,
+  unit,
+  platesOpen,
+  onTogglePlates,
   onChange,
   onRemove,
 }: {
   index: number;
   set: SetDraft;
+  unit: WeightUnit;
+  platesOpen: boolean;
+  onTogglePlates: () => void;
   onChange: (patch: Partial<SetDraft>) => void;
   onRemove?: () => void;
 }) {
@@ -452,7 +543,7 @@ function SetRow({
         inputMode="decimal"
         enterKeyHint="next"
         placeholder="0"
-        aria-label={`Set ${index + 1} weight`}
+        aria-label={`Set ${index + 1} weight (${unitLabel(unit)})`}
         value={set.weight}
         // Digits and a single decimal point; iOS decimal pads vary by locale.
         onChange={(event) =>
@@ -462,6 +553,19 @@ function SetRow({
         }
         className={inputClass}
       />
+      <button
+        type="button"
+        onClick={onTogglePlates}
+        aria-label={`Load set ${index + 1} by plates`}
+        aria-expanded={platesOpen}
+        // Deliberately roomier than the icon: this gets tapped between sets,
+        // with the hands you just lifted with.
+        className={`ios-press flex h-[36px] w-[36px] items-center justify-center justify-self-center rounded-[8px] ${
+          platesOpen ? "bg-accent text-white" : "text-label2"
+        }`}
+      >
+        <PlateIcon className="h-[19px] w-[19px]" />
+      </button>
       <input
         inputMode="numeric"
         enterKeyHint="next"
