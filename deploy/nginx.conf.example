@@ -1,0 +1,54 @@
+# nginx in front of DEADLYFT. Copy to /etc/nginx/sites-available/deadlyft,
+# replace deadlyft.example.com, symlink into sites-enabled, then:
+#
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Certificates here are certbot's default paths; adjust if yours differ.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name deadlyft.example.com;
+
+    # The session cookie is Secure, so the app is unusable over plain HTTP.
+    # Everything goes to TLS rather than being served and silently failing to
+    # keep anyone signed in.
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name deadlyft.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/deadlyft.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/deadlyft.example.com/privkey.pem;
+
+    # Profile photos post through a Server Action, which next.config.ts caps at
+    # 8MB. nginx's own default is 1MB, and it rejects the upload before the app
+    # ever sees it -- so this has to be the larger of the two, with room for
+    # multipart overhead. Without it, saving a photo fails at 413 while
+    # everything else on the site works.
+    client_max_body_size 12m;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # Host must be the original one. Next compares a Server Action's Origin
+        # header against Host (or X-Forwarded-Host) as a CSRF check and aborts
+        # on a mismatch -- so getting this wrong breaks every form on the site
+        # while pages still render fine.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host  $host;
+
+        # Next streams responses; buffering them defeats that.
+        proxy_buffering off;
+    }
+}

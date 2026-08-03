@@ -8,8 +8,10 @@
 # deployment gets found. To run psql or the migration script against it, go
 # through the container — see the README's deployment section.
 
-x-db-url: &db-url
-  DATABASE_URL: postgres://${POSTGRES_USER:-deadlyft}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-deadlyft}
+# DATABASE_URL is written out in both services rather than shared through a
+# YAML anchor. The duplication is one line; an anchor would be one more thing
+# that has to be right in a file whose failure mode is a stack that won't come
+# up on a machine you're SSHed into.
 
 services:
   db:
@@ -49,7 +51,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    environment: *db-url
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-deadlyft}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-deadlyft}
 
   app:
     build: .
@@ -58,8 +61,15 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      <<: *db-url
+      DATABASE_URL: postgres://${POSTGRES_USER:-deadlyft}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-deadlyft}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      # Next encrypts the variables a Server Action closes over, with a key
+      # generated at build time unless one is supplied. Since deploying here
+      # means rebuilding the image, that key would change on every deploy and
+      # anyone holding a page from the previous build would get a decryption
+      # failure on their next action. Pinning it also makes running more than
+      # one app container possible later.
+      NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: ${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY:?set NEXT_SERVER_ACTIONS_ENCRYPTION_KEY in .env}
       NODE_ENV: production
     ports:
       # Bound to localhost: put a reverse proxy in front to terminate TLS.

@@ -200,8 +200,26 @@ cp .env.example .env      # set POSTGRES_PASSWORD and SESSION_SECRET
 docker compose up -d --build
 ```
 
+`.env` needs three generated secrets — `POSTGRES_PASSWORD`, `SESSION_SECRET`
+and `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`. Any of them missing and the stack
+refuses to start rather than coming up with a default:
+
+```bash
+openssl rand -base64 32
+```
+
 The app listens on `127.0.0.1:3000`. Put a reverse proxy in front of it to
-terminate TLS.
+terminate TLS; `deploy/nginx.conf.example` is a working starting point.
+
+Two settings in that file are not optional decoration:
+
+- **`client_max_body_size 12m`.** Profile photos post through a Server Action,
+  which `next.config.ts` caps at 8MB. nginx's own default is 1MB and it rejects
+  the upload before the app sees it, so saving a photo fails with a 413 while
+  the rest of the site works perfectly.
+- **`proxy_set_header Host $host`.** Next compares a Server Action's `Origin`
+  header against `Host` as a CSRF check and aborts on a mismatch. Get this
+  wrong and every form on the site breaks while pages still render.
 
 **HTTPS is not optional.** The session cookie is set `Secure` when
 `NODE_ENV=production`, so over plain HTTP the browser accepts the login,
