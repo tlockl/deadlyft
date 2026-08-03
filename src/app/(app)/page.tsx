@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { getUserStats } from "@/lib/stats";
 import { workoutVolumeKg, countSets } from "@/lib/volume";
+import { activitySummary } from "@/lib/cardio";
 import {
   formatVolume,
   formatVolumeValue,
@@ -38,7 +39,10 @@ export default async function HomePage() {
       where: { userId: user.id, status: "COMPLETED" },
       orderBy: { startedAt: "desc" },
       take: 3,
-      include: { exercises: { include: { sets: true } } },
+      include: {
+        exercises: { include: { sets: true } },
+        cardio: { select: { id: true } },
+      },
     }),
     getUserStats(user.id),
   ]);
@@ -138,9 +142,10 @@ export default async function HomePage() {
               href={`/workout/${workout.id}`}
               last={index === recent.length - 1}
               title={workout.title ?? formatDayLabel(workout.startedAt)}
-              subtitle={`${formatTime(workout.startedAt)} · ${countSets(
-                workout.exercises,
-              )} sets${
+              subtitle={`${formatTime(workout.startedAt)} · ${activitySummary(
+                countSets(workout.exercises),
+                workout.cardio.length,
+              )}${
                 workout.finishedAt
                   ? ` · ${formatDuration(
                       workout.finishedAt.getTime() -

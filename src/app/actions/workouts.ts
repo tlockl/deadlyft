@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { verifySession, getCurrentUser } from "@/lib/dal";
 import { toKg } from "@/lib/units";
+import { MAX_CARDIO_SECONDS } from "@/lib/cardio";
 
 export type ActionError = { error: string } | undefined;
 
@@ -34,11 +35,11 @@ export async function startWorkout(): Promise<never> {
   redirect(`/log/${workout.id}`);
 }
 
-const FinishSchema = z.object({
-  workoutId: z.string().min(1),
-  title: z.string().trim().max(60).optional(),
-  exercises: z
-    .array(
+const FinishSchema = z
+  .object({
+    workoutId: z.string().min(1),
+    title: z.string().trim().max(60).optional(),
+    exercises: z.array(
       z.object({
         name: z.string().trim().min(1).max(80),
         sets: z
@@ -51,9 +52,22 @@ const FinishSchema = z.object({
           )
           .min(1),
       }),
-    )
-    .min(1),
-});
+    ),
+    cardio: z.array(
+      z.object({
+        name: z.string().trim().min(1).max(80),
+        durationSec: z.number().int().min(1).max(MAX_CARDIO_SECONDS),
+        // Null when the timer was counting up with no fixed goal.
+        targetSec: z.number().int().min(1).max(MAX_CARDIO_SECONDS).nullable(),
+      }),
+    ),
+  })
+  // Neither list is required on its own -- a workout can be nothing but a run,
+  // or nothing but lifting -- but a workout of neither is an empty one.
+  .refine(
+    (workout) => workout.exercises.length > 0 || workout.cardio.length > 0,
+    "A workout needs at least one exercise or one cardio entry.",
+  );
 
 export async function finishWorkout(input: unknown): Promise<ActionError> {
   const user = await getCurrentUser();
@@ -62,7 +76,7 @@ export async function finishWorkout(input: unknown): Promise<ActionError> {
   if (!parsed.success) {
     return { error: "Some of those sets didn't look right. Check and retry." };
   }
-  const { workoutId, title, exercises } = parsed.data;
+  const { workoutId, title, exercises, cardio } = parsed.data;
 
   const workout = await prisma.workout.findUnique({
     where: { id: workoutId },
@@ -95,6 +109,15 @@ export async function finishWorkout(input: unknown): Promise<ActionError> {
               weightKg: toKg(set.weight, user.unit),
             })),
           },
+        })),
+      },
+      cardio: {
+        deleteMany: {},
+        create: cardio.map((entry, cardioIndex) => ({
+          name: entry.name,
+          position: cardioIndex,
+          durationSec: entry.durationSec,
+          targetSec: entry.targetSec,
         })),
       },
     },

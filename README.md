@@ -49,12 +49,29 @@ Built with Next.js 16, React 19, Tailwind v4, Prisma 7 and SQLite.
 - A stopwatch runs while you train
 - Start and finish times are recorded by the server, so nothing can be backdated
 - Close the app mid-session and the workout stays open; Home offers to resume it
+- **Nothing typed is lost by leaving the screen.** Wander off to History, reload
+  the page, or have iOS kill the app between sets — the sets, the workout name
+  and the cardio timers all come back, and a timer that was running is still
+  running, with the time you were away counted
 - Bodyweight movements work: leave the weight blank
+
+**Cardio, in the same session**
+
+- Tap **Add Cardio** inside a workout you already have going — it sits alongside
+  the sets rather than in a separate log
+- **Countdown** for a fixed block: set a target (or tap 5/10/15/20/30 minutes),
+  and it stops itself at zero with a chime
+- **Count Up** for an open-ended goal: start it and let it run
+- Pause and resume; only the time actually running is counted
+- Locking your phone doesn't lose time — the timers read the wall clock rather
+  than counting ticks
+- A workout can be nothing but cardio, so a run on its own is still a workout
 
 **Looking back**
 
 - **History** — every finished workout, grouped by month, with volume, set count and duration
-- **Workout detail** — the full set-by-set breakdown, with per-exercise volume
+- **Workout detail** — the full set-by-set breakdown, with per-exercise volume,
+  and what each cardio timer recorded
 - **Exercises** — every movement you've logged, with your best-ever weight
 - **Progress charts** — a line chart per movement showing top-set weight over
   time, with a Volume toggle. Tap any point to see that session and the change
@@ -146,6 +163,8 @@ To move your data to another machine, copy `dev.db` across — photos and all.
 | Optimistic route gating | `src/proxy.ts` |
 | Server actions | `src/app/actions/` |
 | Volume, units, exercise grouping | `src/lib/volume.ts`, `units.ts`, `exercises.ts` |
+| Cardio rules, shared wall clock | `src/lib/cardio.ts`, `clock.ts`, `chime.ts` |
+| Draft shape + surviving a reload | `src/lib/drafts.ts` |
 | Screens | `src/app/(app)/`, `src/app/log/[id]/` |
 | Design tokens | `src/app/globals.css` |
 | Maintenance scripts | `scripts/` (see [scripts/README.md](scripts/README.md)) |
@@ -237,6 +256,80 @@ segments over *still percent-encoded*, so `exerciseSlug` / `decodeExerciseSlug`
 are a matched pair. This is what makes a movement called "Pull-up / Chin-up"
 work as a URL.
 
+**Cardio is its own table, not an `Exercise` with zero-weight sets.** Folding it
+into `Exercise` would have been less schema, but every strength query would then
+have had to start excluding it: cardio has no reps and no weight, so it would
+contribute nothing to volume while still appearing on the Exercises list as
+"Treadmill — best weight 0 lb" next to a flat progress chart. `CardioEntry`
+keeps `src/lib/volume.ts`, `exercises.ts` and `stats.ts` exactly as narrow as
+they were.
+
+**Which timer ran is derived, not stored.** A `CardioEntry` has `durationSec`
+and a nullable `targetSec`; a countdown is one that has a target, and it hit
+that target when `durationSec >= targetSec`. A separate `mode` column would have
+been a second source of truth that could disagree with the numbers — the same
+reasoning as volume never being stored.
+
+**Cardio timers read the wall clock; they never count ticks.** Elapsed time is
+derived from when the current run started plus what earlier runs banked
+(`cardioElapsedMs` in `src/components/CardioTimer.tsx`). A phone suspends
+JavaScript timers the moment the screen locks, so an interval that decremented a
+counter would quietly lose every minute the phone spent in a pocket. Subtracting
+timestamps cannot. A countdown that runs out banks exactly its target rather
+than whatever it overshot to, so a 20-minute block records as 20:00.
+
+**One clock drives every live readout.** `useNow` in `src/lib/clock.ts` is a
+single `useSyncExternalStore` over the wall clock, shared by the workout
+stopwatch and every cardio timer, so they advance on the same tick instead of
+drifting against each other. It ticks faster than the one-second granularity
+anything displays, which costs a few identical renders and buys readouts that
+change in the second they belong to.
+
+**A workout can be nothing but cardio.** `finishWorkout` requires at least one
+exercise *or* at least one cardio entry, not one exercise. A run on its own is
+a workout, and the count-up timer exists precisely for it.
+
+**The in-progress draft is mirrored to localStorage, not to the database.**
+Autosaving to the server would mean a write per keystroke and `Exercise` rows
+existing for workouts that were never finished; keeping the draft in the browser
+leaves `finishWorkout` a single wholesale write. It's localStorage rather than
+sessionStorage because sessionStorage dies with the tab, and "iOS killed the app
+while I was reading a text between sets" is the case most worth surviving.
+
+Because a cardio timer stores *when* it started rather than how long it has run,
+a restored timer is still running, and the time spent away is already in the
+number. Nothing has to keep ticking for that to be true.
+
+**The draft is read through `useSyncExternalStore`, not an effect.** The logger
+is server-rendered, so reading storage while rendering would make the client's
+markup disagree with the server's, and pushing the draft in from an effect means
+initialising the form empty and overwriting it a moment later. Instead the store
+reports `undefined` until storage has been read — the server render and the
+hydration pass — and the form is remounted on a `key` once the answer is known,
+so its state is simply *created* from the draft. Same reasoning as the wall
+clock in `lib/clock.ts`: a browser system the app reads is a store, not state
+the app owns.
+
+Two things this has to get right, both of which were wrong first:
+
+- **The empty form must not save during that window.** On a full page load the
+  form is mounted, empty, before storage has been read; without the `canSave`
+  guard its mount saves an empty draft over the real one and the restore finds
+  nothing. It only ever went wrong on a reload — arriving by a client-side
+  navigation skips the empty mount entirely.
+- **The cached snapshot is written through by `saveDraft`.** `useSyncExternalStore`
+  needs a snapshot that doesn't change identity between calls, so storage is
+  parsed once; leaving it at that meant closing the logger and reopening it
+  restored the draft as it was on arrival and discarded everything typed since.
+
+**Timers correct themselves when you come back rather than drifting.** A hidden
+tab has its intervals throttled, and a locked phone stops firing them almost
+entirely, so every live readout goes stale while you're away. None of them
+*lose* anything, because all are computed from timestamps — and `lib/clock.ts`
+ticks on `visibilitychange` so the right number is already on screen by the time
+you look at it. The one thing a web app can't do here is sound the countdown
+chime while the tab is hidden; it fires when the tab wakes.
+
 ---
 
 ## Future features
@@ -269,6 +362,31 @@ Worth deciding early: how much a friend can see. Totals and workout names are a
 gentler default than every set of every session, and it's much easier to loosen
 that later than to tighten it.
 
+### Coaching over MCP
+
+Expose a user's own logged data through an MCP server, so an agent can read
+their training history and give advice grounded in what they've actually done —
+"your bench has stalled for three weeks", "you haven't trained legs since the
+14th" — rather than in generic programming.
+
+Roughly what it needs:
+
+- Read-only tools over the same data the app already derives: workout history,
+  per-movement sessions and progress (`src/lib/exercises.ts`), lifetime and
+  trailing-week totals (`src/lib/stats.ts`), cardio time
+- A resource or tool for "what has this person done lately", shaped for a model
+  to read rather than for a chart to plot
+
+The thing to settle first is **authentication**, because nothing in the app is
+built for a non-browser caller today. Authorization currently runs through
+`getCurrentUser()` in `src/lib/dal.ts`, which reads a session cookie, plus a
+per-row `userId` check at every query. An MCP server has no cookie. It needs its
+own credential — a per-user token the profile screen can issue and revoke — and
+it must resolve that token to exactly one user id and then go through the same
+DAL checks, so the MCP path can never see more than the person signing in would.
+Scope it to the caller's own data only; a friends feature would widen that
+later, and it's far easier to loosen than to tighten.
+
 ### Other ideas
 
 Unordered, and all optional — prune freely:
@@ -279,7 +397,12 @@ Unordered, and all optional — prune freely:
 - **Estimated 1RM** as a third metric on the progress chart, alongside top
   weight and volume. Deliberately left out for now because it's a computed
   figure that needs explaining.
-- **Rest timer** between sets, counting up from the last set you completed.
+- **Rest timer** between sets, counting up from the last set you completed. Most
+  of the machinery now exists — `useNow`, `CardioTimer`'s wall-clock maths and
+  the chime — so this is mostly a question of where it belongs in the set row.
+- **Distance and pace on cardio**, so a 5k is more than 27 minutes. `CardioEntry`
+  would take a nullable `distanceM`, canonical in metres for the same reason
+  weights are canonical in kilograms.
 - **Routines / templates** — start a workout pre-filled with the exercises you
   always do on push day.
 - **Personal-best badges** when a set beats your previous best for a movement.

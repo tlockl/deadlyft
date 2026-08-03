@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getCurrentUser } from "@/lib/dal";
 import { prisma } from "@/lib/prisma";
 import { workoutVolumeKg, countSets } from "@/lib/volume";
+import { activitySummary } from "@/lib/cardio";
 import {
   formatVolume,
   formatDayLabel,
@@ -33,7 +34,11 @@ export default async function HistoryPage() {
   const workouts = await prisma.workout.findMany({
     where: { userId: user.id, status: "COMPLETED" },
     orderBy: { startedAt: "desc" },
-    include: { exercises: { include: { sets: true } } },
+    include: {
+      exercises: { include: { sets: true } },
+      // Only ever counted here, so there is no reason to read the durations.
+      cardio: { select: { id: true } },
+    },
   });
 
   const months = workouts.reduce<
@@ -74,9 +79,12 @@ export default async function HistoryPage() {
                   title={workout.title ?? formatDayLabel(workout.startedAt)}
                   // Kept short deliberately: this line truncates on a narrow
                   // phone, and the exercise breakdown is on the detail page.
-                  subtitle={`${formatTime(workout.startedAt)} · ${countSets(
-                    workout.exercises,
-                  )} sets${
+                  subtitle={`${formatTime(
+                    workout.startedAt,
+                  )} · ${activitySummary(
+                    countSets(workout.exercises),
+                    workout.cardio.length,
+                  )}${
                     workout.finishedAt
                       ? ` · ${formatDuration(
                           workout.finishedAt.getTime() -

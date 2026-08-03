@@ -69,6 +69,7 @@ model Workout {
   finishedAt DateTime?
 
   exercises Exercise[]
+  cardio    CardioEntry[]
 
   @@index([userId, startedAt])
   @@index([userId, status])
@@ -97,4 +98,28 @@ model WorkoutSet {
   weightKg Float
 
   @@index([exerciseId])
+}
+
+// Cardio is deliberately not an `Exercise` with zero-weight sets. It has no
+// reps and no weight, so it contributes nothing to volume, and folding it into
+// Exercise would put "Treadmill -- best weight 0 lb" on the Exercises list next
+// to a flat progress chart. Keeping it in its own table means every existing
+// strength query stays exactly as narrow as it was.
+model CardioEntry {
+  id        String  @id @default(cuid())
+  workoutId String
+  workout   Workout @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  name     String
+  position Int
+
+  // How long the user actually went for, in whole seconds.
+  durationSec Int
+
+  // The countdown target they set, or null if they were counting up towards an
+  // open-ended goal. Which of the two timers ran is derived from this rather
+  // than stored as its own column, so the two can never contradict each other.
+  targetSec Int?
+
+  @@index([workoutId])
 }
