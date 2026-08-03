@@ -362,6 +362,67 @@ Worth deciding early: how much a friend can see. Totals and workout names are a
 gentler default than every set of every session, and it's much easier to loosen
 that later than to tighten it.
 
+### Cardio progress, machine settings, and an effort score
+
+Three things that only really work as one arc: cardio gets the same
+progress-over-time treatment the lifts have, it records what the machine was
+actually set to, and those settings become a single number worth plotting.
+
+**Progress charts for cardio.** Nearly everything needed already exists.
+`ProgressChart` is metric-agnostic — it takes `ChartPoint[]` and a toggle — and
+`src/lib/exercises.ts` already solves the hard part of grouping free-text names
+(`exerciseKey` for case-insensitive matching, `pickDisplayName` for choosing
+which spelling to show). Cardio names need exactly the same treatment, so that
+grouping is worth lifting out of `exercises.ts` rather than copying. What's new
+is a `getCardioSummaries` / `getCardioHistory` pair over `CardioEntry`, and
+`/cardio/[name]` routes mirroring `/exercises/[name]`.
+
+The open UI question is where it lives. The Exercises tab lists movements, the
+tab bar already has four items, and cardio isn't a movement — a Lifts/Cardio
+segmented control on the Exercises tab is probably the cheapest answer.
+
+**What the machine was set to.** Treadmill has speed and incline, an elliptical
+has resistance, a bike has resistance and cadence, a rower has a split. The
+temptation is a JSON blob; the better fit for this codebase is a fixed set of
+nullable numeric columns on `CardioEntry`, because a blob can't be queried,
+can't be type-checked, and can't be charted without parsing every row.
+
+Two things to settle before writing the migration:
+
+- **Units have to be canonical**, the way weights are kilograms everywhere and
+  convert on read. Speed stored in kph with mph as a display preference is the
+  direct parallel, and `src/lib/units.ts` is where it belongs.
+- **A single speed for a session is a lie if you did intervals.** Either the
+  columns explicitly mean *average* (simple, honest if labelled, and what most
+  apps do), or `CardioEntry` grows a segments table. Worth deciding early —
+  it's much easier to add segments to averages than to retrofit meaning onto
+  numbers already collected.
+
+**The effort score.** This is the part to be careful with. The README already
+argues that estimated 1RM was left out because a computed figure needs
+explaining, and a homemade `speed × incline × time` index is far more arbitrary
+than 1RM — it isn't comparable between two machines, and it invites trusting a
+number that nothing supports.
+
+The way to make it defensible is to not invent it. The **ACSM metabolic
+equations** turn treadmill speed and grade into an oxygen cost, which converts
+to **METs**, and MET-minutes is a real, published, explainable unit that makes a
+treadmill session genuinely comparable to a bike session. Effort should then be
+*derived on read* from the stored settings and duration, exactly as volume is
+derived from sets — so improving the formula restates the whole history instead
+of stranding old rows on an old version of it.
+
+Its honest limitation, worth writing on the screen rather than hiding: incline
+and speed have physics behind them, but machine resistance levels do not.
+"Level 8" on one elliptical is not level 8 on another and no published mapping
+exists, so a resistance-based score is only ever comparable to itself. That is
+still useful for tracking your own progress, and it is not a cross-machine
+strain metric — presenting it as one would be the mistake.
+
+Note also that kilocalories need bodyweight, which the app doesn't store today
+(there's a weight *unit* preference, but no bodyweight). MET-minutes don't, so
+it's the metric that can ship without adding a new field to `User`.
+
 ### Coaching over MCP
 
 Expose a user's own logged data through an MCP server, so an agent can read
@@ -400,9 +461,10 @@ Unordered, and all optional — prune freely:
 - **Rest timer** between sets, counting up from the last set you completed. Most
   of the machinery now exists — `useNow`, `CardioTimer`'s wall-clock maths and
   the chime — so this is mostly a question of where it belongs in the set row.
-- **Distance and pace on cardio**, so a 5k is more than 27 minutes. `CardioEntry`
-  would take a nullable `distanceM`, canonical in metres for the same reason
-  weights are canonical in kilograms.
+- **Distance and pace on cardio**, so a 5k is more than 27 minutes. A nullable
+  `distanceM` on `CardioEntry`, canonical in metres for the same reason weights
+  are canonical in kilograms — best done in the same pass as the machine
+  settings above, since it's the same migration and the same unit question.
 - **Routines / templates** — start a workout pre-filled with the exercises you
   always do on push day.
 - **Personal-best badges** when a set beats your previous best for a movement.
