@@ -3,7 +3,21 @@
 #
 #   sudo nginx -t && sudo systemctl reload nginx
 #
-# Certificates here are certbot's default paths; adjust if yours differ.
+# This is the FINISHED state, with a certificate already issued. `nginx -t`
+# fails against it on a fresh server, because the ssl_certificate paths below
+# don't exist until certbot has run and nginx refuses to load a config
+# pointing at a missing certificate.
+#
+# So on a new server, start with the port-80 server block only -- delete the
+# 443 block, and replace the redirect in the 80 block with the `location /`
+# from the 443 block so the app is reachable over HTTP. Then:
+#
+#   sudo certbot --nginx -d deadlyft.example.com
+#
+# certbot issues the certificate, adds the 443 block, and turns port 80 back
+# into a redirect, arriving at roughly this file. Keep client_max_body_size
+# and the proxy_set_header lines through that transition -- certbot preserves
+# the location block, but it is worth checking afterwards.
 
 server {
     listen 80;

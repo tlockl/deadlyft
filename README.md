@@ -237,6 +237,16 @@ start again with `docker compose down -v`.
 The app listens on `127.0.0.1:3000`. Put a reverse proxy in front of it to
 terminate TLS; `deploy/nginx.conf.example` is a working starting point.
 
+That file is the *finished* state, with a certificate already issued, so
+`nginx -t` fails against it on a fresh server — nginx won't load a config
+pointing at a certificate that doesn't exist yet. Start with its port-80 block
+only, carrying the `location /` across so the app is reachable over HTTP, then
+let certbot issue the certificate and add the rest:
+
+```bash
+sudo certbot --nginx -d your-domain
+```
+
 Two settings in that file are not optional decoration:
 
 - **`client_max_body_size 12m`.** Profile photos post through a Server Action,
