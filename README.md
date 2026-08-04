@@ -500,6 +500,15 @@ runs in one transaction, declines to touch a database that already has rows,
 and compares row counts on both sides *before* committing. Data that exists in
 exactly one place deserves a script whose failure mode is "nothing happened".
 
+It has since been run end to end against a real Postgres, and every value
+compared back against the SQLite it came from: timestamps as instants, floats
+exactly, enum labels, profile photos by SHA-256, password hashes, and note text
+with its newlines. Worth knowing if you ever write that comparison yourself:
+node-postgres reads `timestamp without time zone` as *local* time, so a naive
+`toISOString()` diff reports every row as drifted when nothing is wrong. Compare
+the date's components as UTC, or cast to `::text` in SQL and read the stored
+value directly.
+
 **Migrations run as their own container, not on app start.** Running them from
 an entrypoint in the runtime image would mean shipping the Prisma CLI in it,
 and the CLI needs more than the standalone bundle carries — including a
