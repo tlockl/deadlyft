@@ -205,13 +205,34 @@ cp .env.example .env      # set POSTGRES_PASSWORD and SESSION_SECRET
 docker compose up -d --build
 ```
 
-`.env` needs three generated secrets — `POSTGRES_PASSWORD`, `SESSION_SECRET`
-and `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`. Any of them missing and the stack
-refuses to start rather than coming up with a default:
+`.env` needs three generated secrets, and any of them missing stops the stack
+starting rather than defaulting.
+
+`POSTGRES_PASSWORD` gets interpolated into `DATABASE_URL`, so it has to be
+URL-safe — hex is:
+
+```bash
+openssl rand -hex 32
+```
+
+A password containing `/`, `:`, `@`, `#` or `?` breaks the connection string,
+and a slash is the usual culprit: it ends the URL's authority, so the parser
+reads whatever follows the colon as a port and everything fails with a bare
+`Invalid URL`. `openssl rand -base64 32` emits a slash about half the time,
+which makes it exactly the wrong tool here.
+
+`SESSION_SECRET` and `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY` never go in a URL, so
+base64 is fine for both:
 
 ```bash
 openssl rand -base64 32
 ```
+
+**Changing `POSTGRES_PASSWORD` later doesn't change the database's password.**
+Postgres only reads it when it initialises an empty data directory, so editing
+`.env` afterwards leaves the app using a password the server never adopted. If
+you need to change it before there's data worth keeping, destroy the volume and
+start again with `docker compose down -v`.
 
 The app listens on `127.0.0.1:3000`. Put a reverse proxy in front of it to
 terminate TLS; `deploy/nginx.conf.example` is a working starting point.

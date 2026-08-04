@@ -165,13 +165,35 @@ function assertReadableSqlite(file) {
   }
 }
 
+/**
+ * node-postgres parses the connection string as a URL, and reports anything it
+ * dislikes as a bare "Invalid URL" with no clue which part offended it.
+ *
+ * It is nearly always the password. A slash ends the URL's authority, so
+ * `postgres://user:aB/cD@host:5432/db` leaves the parser reading `aB` as a port
+ * -- and `openssl rand -base64 32`, the obvious way to generate a password,
+ * emits a slash about half the time.
+ */
+function connectClient() {
+  try {
+    return new Client({ connectionString: process.env.DATABASE_URL });
+  } catch (error) {
+    throw new Error(
+      `DATABASE_URL could not be parsed (${error.message}).\n` +
+        "A password containing / : @ # or ? breaks a connection string, and a\n" +
+        "base64 password usually contains a slash. Generate a URL-safe one:\n" +
+        "  openssl rand -hex 32\n" +
+        "Changing POSTGRES_PASSWORD in .env only takes effect on a database\n" +
+        "that hasn't been initialised yet — see the README.",
+    );
+  }
+}
+
 async function main() {
   assertReadableSqlite(SQLITE_PATH);
 
   const sqlite = new Database(SQLITE_PATH, { readonly: true, fileMustExist: true });
-  const pg = CONNECT
-    ? new Client({ connectionString: process.env.DATABASE_URL })
-    : null;
+  const pg = CONNECT ? connectClient() : null;
   if (pg) await pg.connect();
 
   try {
